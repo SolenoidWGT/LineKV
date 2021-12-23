@@ -12,7 +12,7 @@ void *dhmp_context_run(void *data)
 	int i,events_nr=0;
 	
 	ctx->stop=false;
-	DEBUG_LOG("dhmp_context_run.");
+	// DEBUG_LOG("dhmp_context_run.");
 	while(1)
 	{	
 		events_nr=epoll_wait(ctx->epoll_fd, events, ARRAY_SIZE(events), -1);
@@ -90,7 +90,9 @@ int dhmp_context_add_event_fd(struct dhmp_context *ctx,
 		free(event_data_ptr);
 	}
 	else
-		INFO_LOG("dhmp_context add event fd success");
+	{
+		// INFO_LOG("dhmp_context add event fd success");
+	}
 	return retval;
 }
 

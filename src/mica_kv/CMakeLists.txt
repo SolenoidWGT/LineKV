@@ -19,8 +19,6 @@ if(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_CURRENT_BINARY_DIR)
 	message(FATAL_ERROR "Use out-of-source build only!")
 endif(CMAKE_CURRENT_SOURCE_DIR STREQUAL CMAKE_CURRENT_BINARY_DIR)
 
-set (EXECUTABLE_OUTPUT_PATH ${MIDD_MICA_SOURCE_DIR}/bin)
-
 # add_subdirectory(perf_count)
 # set(LIBRARY_PATH ${LIBRARY_PATH} perf_count/)
 
@@ -52,10 +50,12 @@ set(SOURCES ${SOURCES} hash.c)
 set(SOURCES ${SOURCES} city.c)
 # set(SOURCES ${SOURCES} stopwatch.c)
 set(SOURCES ${SOURCES} shm.c)
+set(SOURCES ${SOURCES} shm_init.c)
 
 # common libraries
 # set(LIBRARIES ${LIBRARIES} rt crypto perf_count m pthread)
-set(LIBRARIES ${LIBRARIES} rt crypto perf_count m pthread)
+# 增加中间件所需的 rdma 通信库
+set(LIBRARIES ${LIBRARIES} rt crypto perf_count m pthread middlib xml2 rdmacm ibverbs numa json-c memkind)
 
 # tcmalloc (optional)
 #add_definitions(-fno-builtin-malloc -fno-builtin-calloc -fno-builtin-realloc -fno-builtin-free)
@@ -71,16 +71,35 @@ set(LIBRARIES ${LIBRARIES} rt crypto perf_count m pthread)
 # set(LIBRARIES ${LIBRARIES} ethdev rte_mbuf rte_pmd_ixgbe librte_pmd_ring.a)	# for network features
 # set(LIBRARIES ${LIBRARIES} pthread rt)	# to make sure symbols in pthread and rt are resolved
 
+set (EXECUTABLE_OUTPUT_PATH ${MIDD_MICA_SOURCE_DIR}/bin)
+SET (LIBRARY_OUTPUT_PATH ${MIDD_MICA_SOURCE_DIR}/lib)
 if(NOT "${NLOCAL}" STREQUAL "yes")
-	# test
-	add_executable(test test.c ${SOURCES})
-	target_link_libraries(test ${LIBRARIES})
-	message(STATUS "hhhhhhhhh")
+	# # test
+	# add_executable(test test.c ${SOURCES})
+	# target_link_libraries(test ${LIBRARIES})
+	# message(STATUS "hhhhhhhhh")
 
-	# # load
+	# # # load
 	# add_executable(load load.c ${SOURCES})
 	# target_link_libraries(load ${LIBRARIES})
 
+	# # test
+    # add_executable(ibtest ibtest.c ${SOURCES})
+	# target_link_libraries(ibtest ${LIBRARIES})
+	add_executable(mmap_test test_mmap.c)
+	# server
+	add_executable(mica midd_mica_server.c ${SOURCES})
+	target_link_libraries(mica ${LIBRARIES})
+    # target_link_libraries(ibtest middlib)
+    # target_link_libraries(ibtest xml2)
+    # target_link_libraries(ibtest pthread)
+    # target_link_libraries(ibtest rdmacm)
+    # target_link_libraries(ibtest ibverbs)
+    # target_link_libraries(ibtest numa)
+    # target_link_libraries(ibtest rt)
+    # target_link_libraries(ibtest m)
+    # target_link_libraries(ibtest json-c)
+    # target_link_libraries(ibtest memkind)
 	# # microbench
 	# add_executable(microbench microbench.c ${SOURCES})
 	# target_link_libraries(microbench ${LIBRARIES})

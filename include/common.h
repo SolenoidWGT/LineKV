@@ -24,11 +24,17 @@
 #define MEHCACHED_END
 #endif
 
+#define USE_RDMA
+
+/* 
+ * unused 表示该函数或变量可能不使用，这个属性可以避免编译器产生警告信息。
+ */
 #define MEHCACHED_UNUSED __attribute__((unused))
 #define MEHCACHED_WARN_UNUSED_RESULT __attribute__((warn_unused_result))
 #define MEHCACHED_ALWAYS_INLINE __attribute__((always_inline))
 
 #define MEHCACHED_ALIGNED(alignment) __attribute__ ((aligned (alignment)))
 
+#define Assert(info)  assert(info)
 #include "config.h"
 

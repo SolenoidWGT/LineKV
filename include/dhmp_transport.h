@@ -2,18 +2,18 @@
 #define DHMP_TRANSPORT_H
 #include "dhmp_context.h"
 #include "dhmp_dev.h"
-#include "dhmp_work.h"
+
 #include "dhmp_task.h"
 
 #define ADDR_RESOLVE_TIMEOUT 500
 #define ROUTE_RESOLVE_TIMEOUT 500
 
-#define RECV_REGION_SIZE (1*1024*1024)
-#define SEND_REGION_SIZE (1*1024*1024)
+#define RECV_REGION_SIZE (128*1024*1024)
+#define SEND_REGION_SIZE (128*1024*1024)
 
 /*recv region include poll recv region,normal recv region*/
-#define SINGLE_POLL_RECV_REGION (64*1024*1024)
-#define SINGLE_NORM_RECV_REGION (64*1024)
+#define SINGLE_POLL_RECV_REGION (16*1024*1024)
+#define SINGLE_NORM_RECV_REGION (16*1024*1024)
 
 
 void dhmp_comp_channel_handler(int fd, void* data);
@@ -74,7 +74,8 @@ struct dhmp_transport{
 	long dram_used_size;
 	long nvm_used_size;
 
-	bool is_server;	// 新增的 rdma_trans 标识，如果为true则表示该 trans 是一个 server监听trans
+	bool is_listen;	// 新增的 rdma_trans 标识，如果为true则表示该 trans 是一个 server监听trans
+	bool is_active;	// 如果为 true 表示该节点是主动与对方建立连接
 	struct rdma_conn_param  connect_params;		/* WGT */
 	enum middware_state trans_mid_state;			/* WGT: mark this trans is at which middware stage */
 	struct list_head client_entry;
@@ -91,7 +92,8 @@ struct dhmp_cq* dhmp_cq_get(struct dhmp_device* device, struct dhmp_context* ctx
 struct dhmp_transport* dhmp_transport_create(struct dhmp_context* ctx, 
 													struct dhmp_device* dev,
 													bool is_listen,
-													bool is_poll_qp);
+													bool is_poll_qp,
+													int peer_node_id);
 
 // WGT
 int free_trans(struct dhmp_transport* rdma_trans);
@@ -129,8 +131,13 @@ int dhmp_rdma_write ( struct dhmp_transport* rdma_trans, struct dhmp_addr_info *
 int dhmp_rdma_read(struct dhmp_transport* rdma_trans, struct ibv_mr* mr, void* local_addr, int length, 
 						off_t offset);
 
-
-
-
+const char *  dhmp_printf_connect_state(enum dhmp_transport_state state);
+int find_node_id_by_socket(struct sockaddr_in *sock);
+struct dhmp_transport*  find_connect_client_by_nodeID(int node_id);
+struct dhmp_transport*  find_connect_by_socket(struct sockaddr_in *sock);
+struct dhmp_transport* find_connect_server_by_nodeID(int node_id);
+struct dhmp_transport* dhmp_client_node_select_head();
+extern int client_find_server_id();
+extern int find_next_node(int id);
 #endif
 

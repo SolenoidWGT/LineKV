@@ -6,10 +6,9 @@
 
 #include "dhmp.h"
 #include "dhmp_transport.h"
-#include "../include/dhmp_work.h"
-#include "../include/dhmp_task.h"
-#include "../include/dhmp_client.h"
-#include "../include/dhmp_log.h"
+#include "dhmp_task.h"
+#include "dhmp_client.h"
+#include "dhmp_log.h"
 #include "dhmp_dev.h"
 
 
@@ -65,7 +64,7 @@ void dhmp_post_all_recv(struct dhmp_transport *rdma_trans)
 	else
 		single_region_size=SINGLE_NORM_RECV_REGION;
 	
-	DEBUG_LOG("post recv nums is %d", RECV_REGION_SIZE/single_region_size);
+	// DEBUG_LOG("post recv nums is %d", RECV_REGION_SIZE/single_region_size);
 	for(i=0; i<RECV_REGION_SIZE/single_region_size; i++)
 	{
 		dhmp_post_recv(rdma_trans, 
@@ -81,9 +80,7 @@ void dhmp_post_send(struct dhmp_transport* rdma_trans, struct dhmp_msg* msg_ptr)
 	struct ibv_sge sge;
 	struct dhmp_task *send_task_ptr;
 	int err=0;
-	
-	if(rdma_trans->trans_state!=DHMP_TRANSPORT_STATE_CONNECTED)
-		return ;
+		
 	send_task_ptr=dhmp_send_task_create(rdma_trans, msg_ptr);
 	if(!send_task_ptr)
 	{

@@ -17,7 +17,7 @@
 // mehcached configuration
 
 // be verbose (only for debugging)
-//#define MEHCACHED_VERBOSE
+#define MEHCACHED_VERBOSE
 
 // use counters to collect statistics
 //#define MEHCACHED_COLLECT_STATS
@@ -28,7 +28,7 @@
 
 
 // store mode
-// #define MEHCACHED_NO_EVICTION
+#define MEHCACHED_NO_EVICTION
 
 // use log-structured pool allocator (other MEHCACHED_ALLOC_* must be undef)
 //#define MEHCACHED_ALLOC_POOL

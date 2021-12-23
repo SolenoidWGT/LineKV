@@ -58,8 +58,8 @@ mehcached_malloc_allocate(struct mehcached_malloc *alloc, uint32_t item_size)
     size_t malloc_offset = (size_t)((uint8_t *)p - alloc->pointer_base);
     if (malloc_offset > MEHCACHED_ITEM_OFFSET_MASK)
     {
-        printf("too large pointer: %zx (offset = %zx)\n", (size_t)p, malloc_offset);
-        assert(false);
+        INFO_LOG("too large pointer: %zx (offset = %zx)\n", (size_t)p, malloc_offset);
+        Assert(false);
         return MEHCACHED_MALLOC_INSUFFICIENT_SPACE;
     }
     struct mehcached_alloc_item *alloc_item = (struct mehcached_alloc_item *)p;

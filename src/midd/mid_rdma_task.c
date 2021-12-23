@@ -5,7 +5,7 @@
 #include "dhmp_dev.h"
 #include "dhmp_transport.h"
 #include "dhmp_task.h"
-#include "dhmp_work.h"
+
 #include "dhmp_log.h"
 
 struct dhmp_task* dhmp_recv_task_create(struct dhmp_transport* rdma_trans, 
@@ -51,8 +51,11 @@ struct dhmp_task* dhmp_send_task_create(struct dhmp_transport* rdma_trans,
 							msg->data_size;
 	
 	if(send_mr->cur_pos+send_task->sge.length>SEND_REGION_SIZE)
+	{
+		INFO_LOG("dhmp reuse send_buffer!");
 		send_mr->cur_pos=0;
-	
+	}
+
 	send_task->sge.addr=send_mr->addr+send_mr->cur_pos;
 	send_task->sge.lkey=send_mr->mr->lkey;
 	send_task->rdma_trans=rdma_trans;

@@ -98,7 +98,7 @@ void defaultPut(HashMap* hashMap, void* key, void* value) {
 		// 该地址为空时直接存储
 		hashMap->hash_list[index].key = key;
 		hashMap->hash_list[index].value = value;
-		// printf("put key %s, value %s\n", (char*)key, (char*)value);
+		// INFO_LOG("put key %s, value %s\n", (char*)key, (char*)value);
 	}
 	else {
 
@@ -107,7 +107,7 @@ void defaultPut(HashMap* hashMap, void* key, void* value) {
 			if (hashMap->equal(key, current->key)) {
 				// 对于键值已经存在的直接覆盖
 				current->value = value;
-				// printf("put key %s, value %s\n", (char*)key, (char*)value);
+				// INFO_LOG("put key %s, value %s\n", (char*)key, (char*)value);
 				return;
 			}
 			current = current->next;
@@ -120,7 +120,7 @@ void defaultPut(HashMap* hashMap, void* key, void* value) {
 		entry->next = hashMap->hash_list[index].next;
 		hashMap->hash_list[index].next = entry;
 		hashMap->size++;
-		// printf("put key %s, value %s\n", (char*)key, (char*)value);
+		// INFO_LOG("put key %s, value %s\n", (char*)key, (char*)value);
 	}
 
 
@@ -134,7 +134,7 @@ void defaultPut(HashMap* hashMap, void* key, void* value) {
 		// 这是由哈希函数本身的特性(取模)决定的，冲突就会导致检索变慢，所以这时候扩充存储空间，对原有键值对进行
 		// 再次散列，会把冲突的数据再次分散开，加快索引定位速度。
 		resetHashMap(hashMap, hashMap->listSize * 2);
-		// printf("hashMap->listSize resize to %d\n", hashMap->listSize);
+		// INFO_LOG("hashMap->listSize resize to %d\n", hashMap->listSize);
 	}
 }
 
@@ -267,7 +267,7 @@ HashMap* createHashMap(HashCode hashCode, Equal equal, int _listSize) {
 void resetHashMap(HashMap* hashMap, int new_listSize) {
 
 	if (new_listSize < DEFAULT_MAP_SIZE) return;
-	// printf("hashMap->size is %d\n", hashMap->size);
+	// INFO_LOG("hashMap->size is %d\n", hashMap->size);
 
 	// 将键值对转移到临时存储空间，同时对键值对重新赋值
 	Entry * tempList = (Entry *) malloc( sizeof(struct entry) * hashMap->size);
@@ -277,13 +277,13 @@ void resetHashMap(HashMap* hashMap, int new_listSize) {
 		int j = 0;
 		while(cnt){
 			if(cnt->key == NULL){
-				// printf("%d is miss\n",i );
+				// INFO_LOG("%d is miss\n",i );
 				break;
 			}
 			tempList[count].key = cnt->key;
 			tempList[count].value = cnt->value;
 			tempList[count].next = NULL;
-			// printf("Reput key %s, value %s\n", tempList[count].key, tempList[count].value);
+			// INFO_LOG("Reput key %s, value %s\n", tempList[count].key, tempList[count].value);
 			Entry * cnt_tp = cnt;
 			cnt = cnt->next;
 			if(j !=0)
@@ -292,13 +292,13 @@ void resetHashMap(HashMap* hashMap, int new_listSize) {
 			j++;
 		}
 	}
-	// printf("loop 1 down! count = %d\n", count);
+	// INFO_LOG("loop 1 down! count = %d\n", count);
 
 	// 更改内存大小
 	hashMap->listSize = new_listSize;
 	hashMap->hash_list  = (Entry*)realloc(hashMap->hash_list, hashMap->listSize * sizeof(struct entry));
 
-	// printf("更改内存大小ok!\n");
+	// INFO_LOG("更改内存大小ok!\n");
 
 	// 初始化数据
 	for ( i = 0; i < hashMap->listSize; i++) {
@@ -307,17 +307,17 @@ void resetHashMap(HashMap* hashMap, int new_listSize) {
 		hashMap->hash_list[i].next = NULL;
 	}
 
-	// printf("初始化数据ok! , hashMap->size = %d \n", hashMap->size);
+	// INFO_LOG("初始化数据ok! , hashMap->size = %d \n", hashMap->size);
 
 	// 将所有键值对重新写入内存
 	int old_length = hashMap->size;
 	hashMap->size = 0;
 	for (i = 0; i <old_length; i++) {
 		hashMap->put(hashMap, tempList[i].key, tempList[i].value);
-		// printf("%d\n", i);
+		// INFO_LOG("%d\n", i);
 	}
 
-	// printf("resie ok! i== %d\n", i);
+	// INFO_LOG("resie ok! i== %d\n", i);
 	free(tempList);
 	
 }
@@ -338,14 +338,14 @@ int main()
 		file_names[i] =temp2;
 	}	
 	// for(i=0; i< test_num; i++){
-	// 	printf("%s\n", file_names[i]);
+	// 	INFO_LOG("%s\n", file_names[i]);
 	// }
 	for(i =0; i< test_num; i++){
 		hashmap->put(hashmap, file_names[i], file_names[i]);
 	}
 	for(i =0; i< test_num; i++){
 		if(file_names[i] != hashmap->get(hashmap, file_names[i]) ){
-			printf("ERRPR\n");
+			INFO_LOG("ERRPR\n");
 		}
 	}
 	// Entry * cnt = hashmap->hash_list;
@@ -353,7 +353,7 @@ int main()
 	// int count = 0;
 	// for(; i < hashmap->listSize; i++){
 	// 	while(cnt){
-	// 		printf("%s, %s", cnt->key,  cnt->value);
+	// 		INFO_LOG("%s, %s", cnt->key,  cnt->value);
 	// 		cnt = cnt->next;
 	// 		count++;
 	// 	}

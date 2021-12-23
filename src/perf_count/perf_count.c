@@ -285,7 +285,7 @@ perf_count_accumulate(perf_count_t perf_count, int additive)
 
 			count[0] = count[1] = count[2] = 0;
 			ssize_t len = read(ctx->fds[group * ctx->num_events + event], count, sizeof(count));
-			//printf("%d %ld %ld %ld\n", len, count[0], count[1], count[2]);
+			//INFO_LOG("%d %ld %ld %ld\n", len, count[0], count[1], count[2]);
 			if (len < 0)
 			{
 				perror("perf_count: error while reading stats");

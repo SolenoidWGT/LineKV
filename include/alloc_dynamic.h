@@ -53,6 +53,7 @@ struct mehcached_dynamic
 	uint64_t size;	// the total size
     uint8_t *data;	// the base address of the reserved memory
     uint8_t *free_head[MEHCACHED_DYNAMIC_NUM_CLASSES];	// the head free pointer of each class
+    size_t  mapping_id;
 };
 
 static

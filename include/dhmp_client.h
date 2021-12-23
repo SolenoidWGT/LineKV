@@ -27,7 +27,7 @@ struct dhmp_client{
 	struct hlist_head addr_info_ht[DHMP_CLIENT_HT_SIZE];
 	pthread_mutex_t mutex_send_mr_list;
 	struct list_head send_mr_list;
-	
+
 	int fifo_node_index;	/*use for node select*/
 
 	pthread_t work_thread1;

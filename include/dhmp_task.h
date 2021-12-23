@@ -1,5 +1,7 @@
 #ifndef DHMP_TASK_H
 #define DHMP_TASK_H
+#include "dhmp.h"
+#include "dhmp_transport.h"
 struct dhmp_sge
 {
 	void *addr;

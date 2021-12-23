@@ -1,27 +1,48 @@
-// Copyright 2014 Carnegie Mellon University
-//
-// Licensed under the Apache License, Version 2.0 (the "License");
-// you may not use this file except in compliance with the License.
-// You may obtain a copy of the License at
-//
-//     http://www.apache.org/licenses/LICENSE-2.0
-//
-// Unless required by applicable law or agreed to in writing, software
-// distributed under the License is distributed on an "AS IS" BASIS,
-// WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
-// See the License for the specific language governing permissions and
-// limitations under the License.
-
 #include <stdio.h>
 #include <Assert.h>
+#include <sys/mman.h>
 
 #include "mehcached.h"
 #include "hash.h"
+
+
+#include "dhmp.h"
+#include "dhmp_log.h"
+#include "dhmp_hash.h"
+#include "dhmp_config.h"
+#include "dhmp_context.h"
+#include "dhmp_dev.h"
+#include "dhmp_transport.h"
+#include "dhmp_task.h"
+
+#include "dhmp_client.h"
+#include "dhmp_server.h"
+#include "dhmp_init.h"
+#include "mid_rdma_utils.h"
+
+#define TEST_MMAP_SIZE 1024
 
 void
 test_basic()
 {
     INFO_LOG("test_basic()\n");
+    struct dhmp_server * mid_server;
+    struct dhmp_device * dev;
+    mid_server = dhmp_server_init();
+
+
+    dev=dhmp_get_dev_from_server();
+    void *p = mmap(NULL, TEST_MMAP_SIZE, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE  | MAP_ANONYMOUS, -1, 0);
+    struct ibv_mr * mr=ibv_reg_mr(dev->pd, p, TEST_MMAP_SIZE, 
+                                    IBV_ACCESS_LOCAL_WRITE|
+									IBV_ACCESS_REMOTE_READ|
+									IBV_ACCESS_REMOTE_WRITE|
+									IBV_ACCESS_REMOTE_ATOMIC);
+    if(!mr)
+	{
+		ERROR_LOG("rdma register memory error. register mem length is [%u], error number is [%d], reason is \"%s\", addr is %p",  TEST_MMAP_SIZE, errno, strerror(errno), p);
+		exit(0);
+	}
 
     struct mehcached_table table_o;
     struct mehcached_table *table = &table_o;
@@ -80,9 +101,9 @@ main(int argc MEHCACHED_UNUSED, const char *argv[] MEHCACHED_UNUSED)
     const size_t num_pages_to_try = 16384;
     const size_t num_pages_to_reserve = 16384 - 2048;   // give 2048 pages to dpdk
 
-	mehcached_shm_init(page_size, num_numa_nodes, num_pages_to_try, num_pages_to_reserve);
+	// mehcached_shm_init(page_size, num_numa_nodes, num_pages_to_try, num_pages_to_reserve);
 
-    test_basic();
+    // test_basic();
 
     return EXIT_SUCCESS;
 }

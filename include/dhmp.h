@@ -1,28 +1,7 @@
 #ifndef DHMP_H
 #define DHMP_H
 
-#include "basic_types.h"
-#include "common.h"
-
-#include <stdio.h>
-#include <stdlib.h>
-#include <stdint.h>
-#include <stdarg.h>
-#include <assert.h>
-#include <string.h>
-#include <unistd.h>
-#include <pthread.h>
-#include <time.h>
-#include <math.h>
-#include <sys/epoll.h>
-#include <sys/eventfd.h>
-#include <sys/timerfd.h>
-#include <sys/time.h>
-#include "./linux/list.h"
-#include <infiniband/verbs.h>
-#include <rdma/rdma_cma.h>
-#include <numa.h>
-#include "json-c/json.h"
+#include "dhmp_mica_shm_common.h"
 
 #define DHMP_CACHE_POLICY
 #define DHMP_MR_REUSE_POLICY
@@ -52,37 +31,80 @@
 #define RDMA_SEND_THREASHOLD 2097152
 #endif
 
+#define POST_SEND_BUFFER_SIZE 1024*1024*128
+
+// 集群中的 node id 编号宏
+#define MAIN_NODE_ID 0
+#define MIRROR_NODE_ID 1
+#define REPLICA_NODE_HEAD_ID 2
+#define REPLICA_NODE_TAIL_ID (server_instance->node_nums -1)
+#define REPLICA_NODE_NUMS (server_instance->node_nums - 2)
+
 extern struct memkind * pmem_kind;
 
-enum node_class {
-	HEAD,
-    NORMAL,
-    TAIL
+// Replica REPLICA
+// 如果只有一个副本节点，那么这个副本节点既是 REPLICA 又是 MIDDLE 还是 TAIL
+enum dhmp_node_class {
+	MAIN,
+	MIRROR,
+	REPLICA
 };
 
+#define IS_MAIN(type)    (type & (1 << MAIN) )
+#define IS_MIRROR(type)  (type & (1 << MIRROR) )
+#define IS_REPLICA(type) (type & (1 << REPLICA) )
+// #define IS_HEAD(type) (type & (1 << HEAD) )
+// #define IS_MIDDLE(type) (type & (1 << MIDDLE) )
+// #define IS_TAIL(type) (type & (1 << TAIL) )
+
+#define SET_MAIN(type) 	  ( type = (type | (1 << MAIN)   ) )
+#define SET_MIRROR(type)  ( type = (type | (1 << MIRROR) ) )
+#define SET_REPLICA(type) ( type = (type | (1 << REPLICA) ) )
+// #define SET_HEAD(type)   ( type = (type | (1 << HEAD)   ) )
+// #define SET_MIDDLE(type) ( type = (type | (1 << MIDDLE) ) )
+// #define SET_TAIL(type)   ( type = (type | (1 << TAIL)   ) )
+
+
 enum dhmp_msg_type{
-	DHMP_MSG_MALLOC_REQUEST,
-	DHMP_MSG_MALLOC_RESPONSE,
-	DHMP_MSG_MALLOC_ERROR,
-	DHMP_MSG_FREE_REQUEST,
-	DHMP_MSG_FREE_RESPONSE,
-	DHMP_MSG_APPLY_DRAM_REQUEST,
-	DHMP_MSG_APPLY_DRAM_RESPONSE,
-	DHMP_MSG_CLEAR_DRAM_REQUEST,
-	DHMP_MSG_CLEAR_DRAM_RESPONSE,
-	DHMP_MSG_MEM_CHANGE,
-	DHMP_MSG_SERVER_INFO_REQUEST,
-	DHMP_MSG_SERVER_INFO_RESPONSE,
+	// DHMP_MSG_MALLOC_REQUEST,
+	// DHMP_MSG_MALLOC_RESPONSE,
+	// DHMP_MSG_MALLOC_ERROR,
+	// DHMP_MSG_FREE_REQUEST,
+	// DHMP_MSG_FREE_RESPONSE,
+	// DHMP_MSG_APPLY_DRAM_REQUEST,
+	// DHMP_MSG_APPLY_DRAM_RESPONSE,
+	// DHMP_MSG_CLEAR_DRAM_REQUEST,
+	// DHMP_MSG_CLEAR_DRAM_RESPONSE,
+	// DHMP_MSG_MEM_CHANGE,
+	// DHMP_MSG_SERVER_INFO_REQUEST,
+	// DHMP_MSG_SERVER_INFO_RESPONSE,
+	
+	// DHMP_MSG_SEND_REQUEST,
+	// DHMP_MSG_SEND_RESPONSE,
 	DHMP_MSG_CLOSE_CONNECTION,
-	DHMP_MSG_SEND_REQUEST,
-	DHMP_MSG_SEND_RESPONSE,
 
 	/* WGT: add new msg type */
-	DHMP_BUFF_MALLOC_REQUEST,
-	DHMP_BUFF_MALLOC_RESPONSE,
-	DHMP_BUFF_MALLOC_ERROR,
-	DHMP_ACK_REQUEST,
-	DHMP_ACK_RESPONSE,
+	DHMP_MICA_SEND_INFO_REQUEST,
+	DHMP_MICA_SEND_INFO_RESPONSE,
+};
+
+
+enum ack_info_type{
+	MICA_INIT_ADDR_ACK,
+};
+
+enum ack_info_state{
+	MICA_ACK_INIT_ADDR_OK,
+	MICA_ACK_INIT_ADDR_NOT_OK,
+};
+
+enum mica_send_info_type{
+	MICA_GET_CLIMR_REQUEST,
+	MICA_GET_CLIMR_RESPONSE,
+	MICA_ACK_REQUEST,
+	MICA_ACK_RESPONSE,
+	MICA_SERVER_GET_CLINET_NODE_ID_REQUEST,
+	MICA_SERVER_GET_CLINET_NODE_ID_RESPONSE,
 };
 
 enum middware_state{
@@ -109,7 +131,7 @@ enum response_state
 /*struct dhmp_msg:use for passing control message*/
 struct dhmp_msg{
 	enum dhmp_msg_type msg_type;
-	size_t data_size;
+	size_t data_size;		// 整个报文的长度（包含 post_datagram header）
 	void *data;
 };
 
@@ -123,113 +145,10 @@ struct dhmp_addr_info{
 	struct ibv_mr nvm_mr;
 	struct hlist_node addr_entry;
 };
-
-/*dhmp malloc request msg*/
-struct dhmp_mc_request{
-	size_t req_size;
-	struct dhmp_addr_info *addr_info;
-};
-
-/*dhmp malloc response msg*/
-struct dhmp_mc_response{
-	struct dhmp_mc_request req_info;
-	struct ibv_mr mr;
-};
-
-/*dhmp free memory request msg*/
-struct dhmp_free_request{
-	struct dhmp_addr_info *addr_info;
-	struct ibv_mr mr;
-};
-
-/*dhmp free memory response msg*/
-struct dhmp_free_response{
-	struct dhmp_addr_info *addr_info;
-};
-
-struct dhmp_send_request{
-	size_t req_size;
-	void * server_addr;
-	void * task;
-	void * local_addr;
-	bool is_write;
-};
-
-struct dhmp_send_response{
-	struct dhmp_send_request req_info;
-};
-
 struct dhmp_dram_info{
 	void *nvm_addr;
 	struct ibv_mr dram_mr;
 };
-
-
-
-void dhmp_buff_malloc(int nodeid, void ** buff_mate_addr, void** buff_addr);
-
-/**
- *	dhmp_malloc: remote alloc the size of length region
- */
-void *dhmp_malloc(size_t length, int nodeid);
-
-/**
- *	dhmp_read:read the data from dhmp_addr, write into the local_buf
- */
-int dhmp_read(void *dhmp_addr, void * local_buf, size_t count, off_t offset, bool is_atomic);
-
-/**
- *	dhmp_write:write the data in local buf into the dhmp_addr position
- */
-int dhmp_write(void *dhmp_addr, void * local_buf, size_t length, off_t offset, bool is_atomic);
-
-int dhmp_send(void *dhmp_addr, void * local_buf, size_t length, bool is_write);
-
-/**
- *	dhmp_free:release remote memory
- */
-void dhmp_free(void *dhmp_addr);
-
-/**
- *	dhmp_client_init:init the dhmp client
- *	note:client connect the all server
- */
-// void dhmp_client_init(size_t size, int server_id);
-// void dhmp_client_mid_init(size_t size, int server_id);
-
-/**
- *	dhmp_client_destroy:clean RDMA resources
- */
-void dhmp_client_destroy();
-
-/**
- *	dhmp_server_init:init server 
- *	include config.xml read, rdma listen,
- *	register memory, context run. 
- */
-// struct dhmp_server * dhmp_server_init();
-
-// void dhmp_server_init(struct dhmp_server * mid_server);
-
-
-/**
- *	dhmp_server_destroy: close the context,
- *	clean the rdma resource
- */
-void dhmp_server_destroy();
-
-
-/*
- * dhmp get ack 
- */
-enum response_state
-dhmp_ack(int nodeid, enum request_state acktype);
-
-
-int dhmp_asyn_write(void *dhmp_addr, void * local_buf, size_t count, 
-						off_t offset, bool is_atomic);
-
-/* Middware Add New stuff is here */
 
 /*
  * 一次dhmp标准的rpc通信过程是，主动发起请求的一方（客户端）构建request结构体，结构体中包含最终对端返回数据存放位置的指针，
@@ -238,37 +157,51 @@ int dhmp_asyn_write(void *dhmp_addr, void * local_buf, size_t count,
  * 这也就是为什么response结构体里面需要包含request结构体 
  */
 
-/*WGT: dhmp ack request request msg*/
-struct dhmp_ack_request{
-	int node_id;
-	struct dhmp_ack_work * work;
-	enum request_state  ack_flag; 
+// 通用消息结构体
+struct post_datagram
+{
+	struct post_datagram* req_ptr;	    	// request 报文的回调指针，用于发送方辨别自己发送的消息
+	struct post_datagram* resp_ptr;			// response 报文的回调指针，用于接收方辨别自己发送的消息
+	int    node_id;							// 身份标识，用于通信双方辨别发送方身份，一次rpc过程中node_id 改变两次
+	enum mica_send_info_type info_type;		// 报文类型的判别
+	size_t info_length;						// 具体消息报文的长度
+	bool   done_flag;						// 用于判别报文是否发送完成，用于阻塞
 };
-struct dhmp_ack_response{
-	int node_id;
-	struct dhmp_ack_request req_info;
-	enum response_state  res_ack_flag; 
-	unsigned long int log_id;
+#define HEADER_LEN sizeof(struct post_datagram)
+#define DATAGRAM_ALL_LEN(len) ((HEADER_LEN) + len)
+#define DATA_ADDR(start_addr, offset) ((char *)start_addr +  HEADER_LEN + offset)
+
+// 下面这个消息用于处理MICA服务端向MICA客户端发送的具体消息报文
+// 包含 init_addr, update , insert, delete 等操作
+struct dhmp_mica_get_cli_MR_request
+{
+	struct replica_mappings  *info_revoke_ptr;	// 回调指针
+};
+struct dhmp_mica_get_cli_MR_response
+{
+	struct dhmp_mica_get_cli_MR_request	request;
+	struct replica_mappings  resp_all_mapping;	// 完整数据结构体		 	 
+};
+struct dhmp_mica_ack_request
+{
+	enum ack_info_type ack_type;	
+};
+struct dhmp_mica_ack_response
+{
+	enum ack_info_state ack_state;		 	 
 };
 
-/*WGT: dhmp malloc Buff request msg*/
-struct dhmp_buff_request{
-	int node_id;
-	struct dhmp_buff_malloc_work * work;
-	struct dhmp_addr_info * buff_addr_info;
-	struct dhmp_addr_info * buff_mate_addr_info;
+struct dhmp_get_nodeID_request
+{
+	int node_id;	
 };
-
-/*WGT: dhmp malloc Buff response msg*/
-struct dhmp_buff_response{
-	struct dhmp_buff_request req_info;
-	struct ibv_mr mr_buff;
-	struct ibv_mr mr_data;
-	int node_id;
+struct dhmp_get_nodeID_response
+{	
+	int resp_node_id;	 	 
 };
 
 extern pthread_mutex_t buff_init_lock; 
-
 extern int wait_work_counter;
 extern int wait_work_expect_counter;
+
 #endif

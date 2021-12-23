@@ -6,10 +6,9 @@
 
 #include "dhmp.h"
 #include "dhmp_transport.h"
-#include "../include/dhmp_work.h"
-#include "../include/dhmp_task.h"
-#include "../include/dhmp_client.h"
-#include "../include/dhmp_log.h"
+#include "dhmp_task.h"
+#include "dhmp_client.h"
+#include "dhmp_log.h"
 #include "dhmp_dev.h"
 
 
@@ -68,11 +67,15 @@ static void dhmp_wc_error_handler(struct ibv_wc* wc)
 {
 	if(wc->status==IBV_WC_WR_FLUSH_ERR)
 	{
-		// INFO_LOG("work request flush");
+		// INFO_LOG("work request flush, retry.....");
 	}
 	else
-		ERROR_LOG("wc status is [%s]",
-		            ibv_wc_status_str(wc->status));
+	{
+		ERROR_LOG("wc status is [%s], byte_len is [%u], opcode is [%s]", \
+				ibv_wc_status_str(wc->status), wc->byte_len, dhmp_wc_opcode_str(wc->opcode));
+		exit(0);
+	}
+
 }
 
 /**

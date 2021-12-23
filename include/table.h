@@ -15,7 +15,6 @@
 #pragma once
 
 #include "common.h"
-#include "alloc_pool.h"
 #include "alloc_malloc.h"
 #include "alloc_dynamic.h"
 
@@ -63,7 +62,8 @@ struct mehcached_bucket
 {
     uint32_t version;   // XXX: is uint32_t wide enough?
     uint32_t next_extra_bucket_index;   // 1-base; 0 = no extra bucket
-    uint64_t item_vec[MEHCACHED_ITEMS_PER_BUCKET];
+    // 一个 bucket 包含 15 个index entry， 并且每个存储 bucket 都有固定数量的 index entry （可在源代码中配置；在我们的原型中为 15 个，正好占用两个缓存行）。
+    uint64_t item_vec[MEHCACHED_ITEMS_PER_BUCKET]; 
 
     // 16: tag (1-base)
     //  8: alloc id
@@ -138,6 +138,7 @@ struct mehcached_table
     uint32_t num_buckets;
     uint32_t num_buckets_mask;
     uint32_t num_extra_buckets;
+    size_t mapping_id;
 
     struct
     {
@@ -205,6 +206,8 @@ struct mehcached_request
     uint32_t reserved1;
     // 24
 };
+
+extern struct mehcached_table table_o;;
 
 static
 void
@@ -282,7 +285,6 @@ static
 void
 mehcached_table_reset(struct mehcached_table *table);
 
-static
 void
 mehcached_table_init(struct mehcached_table *table, size_t num_buckets, size_t num_pools, size_t pool_size, bool concurrent_table_read, bool concurrent_table_write, bool concurrent_alloc_write, size_t table_numa_node, size_t alloc_numa_nodes[], double mth_threshold);
 
@@ -290,5 +292,10 @@ static
 void
 mehcached_table_free(struct mehcached_table *table);
 
+bool 
+get_table_init_state();
+
+void 
+set_table_init_state(bool val);
 MEHCACHED_END
 

@@ -54,24 +54,30 @@ memory_barrier()
     asm volatile("" ::: "memory");
 }
 
+/*
+ * 王国腾注释：
+ * mehcached_memcpy8 以 8B 对齐的长度进行拷贝
+ * 对于小于64B的小内存拷贝，使用循环展开进行优化，减少循环的分支预测，及其失败的开销
+ * 64位处理器的cacheline大小是64B，避免缓存行失效
+ */
 static
 void
 mehcached_memcpy8(uint8_t *dest, const uint8_t *src, size_t length)
 {
-    length = MEHCACHED_ROUNDUP8(length);
+    length = MEHCACHED_ROUNDUP8(length);    // 让 length 和 8B 对齐
 #ifndef USE_DPDK
     switch (length >> 3)
     {
         case 0:
             break;
-        case 1:
+        case 1:  // 8B
             *(uint64_t *)(dest + 0) = *(const uint64_t *)(src + 0);
             break;
-        case 2:
+        case 2:  // 16B
             *(uint64_t *)(dest + 0) = *(const uint64_t *)(src + 0);
             *(uint64_t *)(dest + 8) = *(const uint64_t *)(src + 8);
             break;
-        case 3:
+        case 3:  // 32B
             *(uint64_t *)(dest + 0) = *(const uint64_t *)(src + 0);
             *(uint64_t *)(dest + 8) = *(const uint64_t *)(src + 8);
             *(uint64_t *)(dest + 16) = *(const uint64_t *)(src + 16);

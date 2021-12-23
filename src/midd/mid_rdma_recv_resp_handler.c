@@ -1,458 +1,286 @@
-#include <infiniband/verbs.h>
-#include <rdma/rdma_cma.h>
-#include <netinet/in.h>
-#include <fcntl.h>
-#include <arpa/inet.h>
-
-#include "dhmp.h"
-#include "dhmp_transport.h"
-#include "dhmp_work.h"
-#include "dhmp_task.h"
+// "shm_private.h" 头文件要包含在 "dhmp_task.h" 等头文件之后
+#include "shm_private.h"
+#include "table.h"
 #include "dhmp_client.h"
 #include "dhmp_log.h"
 #include "dhmp_dev.h"
 #include "dhmp_server.h"
 #include "mid_rdma_utils.h"
+#include "dhmp_transport.h"
+#include "dhmp_task.h"
 
-#include "log_copy.h"
-
-
-static void dhmp_malloc_request_handler(struct dhmp_transport* rdma_trans,
-												struct dhmp_msg* msg)
+static struct post_datagram * 
+dhmp_mica_get_cli_MR_request_handler(struct dhmp_transport* rdma_trans,
+									struct post_datagram *req)
 {
-	struct dhmp_mc_response response;
+	struct post_datagram *resp;
+	struct dhmp_mica_get_cli_MR_request  * req_info, *resp_req;
+	struct dhmp_mica_get_cli_MR_response * cli_mappings;
 	struct dhmp_msg res_msg;
-	bool res=true;
-	struct dhmp_device * dev;
-	struct ibv_mr * mr = NULL;
-	size_t re_length = 0;
-	char * addr;
+	struct dhmp_device * dev = dhmp_get_dev_from_server();
+	size_t resp_len = 0;
+	size_t req_len = res_msg.data_size;
 
-	memcpy ( &response.req_info, msg->data, sizeof(struct dhmp_mc_request));
-	INFO_LOG ( "client req size %d",  response.req_info.req_size);
-	re_length = response.req_info.req_size;
+	// 该节点的 mapping 信息和 mr 信息
+	resp_len += sizeof(struct dhmp_mica_get_cli_MR_response);
+	resp = (struct post_datagram *) malloc(DATAGRAM_ALL_LEN(resp_len));
+	INFO_LOG("resp length is %u", DATAGRAM_ALL_LEN(resp_len));
+	memset(resp, 0, DATAGRAM_ALL_LEN(resp_len));
 
-	dev=dhmp_get_dev_from_server();
-	mr = dhmp_memory_malloc_register(dev->pd, re_length, 2);
-	if(!mr){
-		ERROR_LOG("dhmp_malloc_request_handler Fail!");
-		goto req_error;
-	}
+	req_info  = (struct dhmp_mica_get_cli_MR_request *) DATA_ADDR(req, 0);
+	resp_req  = (struct dhmp_mica_get_cli_MR_request *) DATA_ADDR(resp, 0);
+	cli_mappings = (struct dhmp_mica_get_cli_MR_response *) DATA_ADDR(resp, sizeof(struct dhmp_mica_get_cli_MR_request));
 
-	memcpy(&response.mr, mr, sizeof(struct ibv_mr));
-	DEBUG_LOG("malloc addr %p lkey %ld length is %d",
-			mr->addr, mr->lkey, mr->length );
-
-	res_msg.msg_type = DHMP_MSG_MALLOC_RESPONSE;
-	res_msg.data_size = sizeof(struct dhmp_mc_response);
-	res_msg.data= &response;
-	dhmp_post_send(rdma_trans, &res_msg);
-	/*count the server_instance memory,and inform the watcher*/
-	rdma_trans->nvm_used_size+=response.mr.length;
-
-	return ;
-
-req_error:
-	/*transmit a message of DHMP_MSG_MALLOC_ERROR*/
-	res_msg.msg_type=DHMP_MSG_MALLOC_ERROR;
-	res_msg.data_size=sizeof(struct dhmp_mc_response);
-	res_msg.data=&response;
-
-	dhmp_post_send ( rdma_trans, &res_msg );
-
-	return ;
-}
-
-static void dhmp_malloc_response_handler(struct dhmp_transport* rdma_trans,
-													struct dhmp_msg* msg)
-
-{
-	struct dhmp_mc_response response_msg;
-	struct dhmp_addr_info *addr_info;
-
-	memcpy(&response_msg, msg->data, sizeof(struct dhmp_mc_response));
+	INFO_LOG("client revoke ptr is [%p]", req_info->info_revoke_ptr);
+	INFO_LOG("resp addr is %p", resp);
+	INFO_LOG("cli_mappings addr is %p", cli_mappings);
+	INFO_LOG("offset is %u", (char*)cli_mappings - (char*)resp);
+	INFO_LOG("resp_len is %u", resp_len);
+	INFO_LOG("total len is %u", DATAGRAM_ALL_LEN(resp_len));
+	INFO_LOG("sizeof(post_datagram) is %u", HEADER_LEN);
+	INFO_LOG("sizeof(dhmp_mica_get_cli_MR_response) is %u", sizeof(struct dhmp_mica_get_cli_MR_response));
 	
-	addr_info = response_msg.req_info.addr_info;
-	addr_info->read_cnt=addr_info->write_cnt = 0;
-	memcpy(&addr_info->nvm_mr, &response_msg.mr, sizeof(struct ibv_mr));
+	// 保存客户端的回调指针
+	memcpy(resp_req, req_info, sizeof(struct dhmp_mica_get_cli_MR_request));
+	// 填充自身新产生的信息
+	cli_mappings->resp_all_mapping.node_id = server_instance->server_id;
+	cli_mappings->resp_all_mapping.used_mapping_nums = get_mapping_nums();
+	cli_mappings->resp_all_mapping.first_inited = false;
 
-	DEBUG_LOG("response mr addr %p lkey %ld",
-			addr_info->nvm_mr.addr, addr_info->nvm_mr.lkey);
-
-}
-
-
-static void dhmp_malloc_buff_request_handler(struct dhmp_transport* rdma_trans,
-												struct dhmp_msg* msg)
-
-{
-	int re;
-	struct dhmp_buff_response response;
-	struct dhmp_msg res_msg;
-	bool res=true;
-	struct dhmp_device * dev;
-	struct ibv_mr * mr = NULL;
-	size_t re_length = 0;
-	char * addr;
-
-	memcpy ( &response.req_info, msg->data, sizeof(struct dhmp_buff_request));
-	INFO_LOG ( "Recv buff request from node [%d]",  response.req_info.node_id);
-	response.node_id = server_instance->server_id;
-
-	dev=dhmp_get_dev_from_server();
-
-	/* 
-	 * If in first time, we init buffer, next time will return 
-	 * metadata information directly .
-	 */
-	if(local_recv_buff == NULL ||  
-	   local_recv_buff_mate == NULL)
+	if (false == get_table_init_state())
 	{
-		LocalRingbuff     * tmp_buff_ptr;
-		LocalMateRingbuff * tmp_buff_mate_ptr;
-		
-		/* Double checked lock */
-		pthread_mutex_lock(&buff_init_lock);
-		if(local_recv_buff == NULL ||
-		   local_recv_buff_mate == NULL)
+		mehcached_shm_lock();
+		if (false == get_table_init_state() )
 		{
-			tmp_buff_mate_ptr = (LocalMateRingbuff*) malloc(sizeof(LocalMateRingbuff));
-			/* 
-			 * dhmp_memory_register will also allocate memory and 
-			 * register memory.
-			 */
-			re = dhmp_memory_register(dev->pd, &tmp_buff_mate_ptr->buff_mate_mr, \
-										sizeof(LocalRingbuff));
+			// 进行节点的 k-v 初始化
+			struct mehcached_table *table = &table_o;
+			size_t numa_nodes[] = {(size_t)-1};
 
-			if(re !=0)
-			{
-				ERROR_LOG("BUFF: malloc and register Local_Recv_Buff_MR Fail!");
-				free(tmp_buff_mate_ptr);
-				goto req_error;
-			}
+			// 初始化 hash table 并注册内存
+			mehcached_table_init(table, 1, 1, 256, false, false, false, \
+								numa_nodes[0], numa_nodes, MEHCACHED_MTH_THRESHOLD_FIFO);
+			Assert(table);
 
-			tmp_buff_ptr = (LocalRingbuff*) tmp_buff_mate_ptr->buff_mate_mr.addr;
-			tmp_buff_ptr->wr_pointer = 0;
-			tmp_buff_ptr->rd_pointer = 0;
-			tmp_buff_ptr->size = TOTAL_SIZE;
-			tmp_buff_ptr->rd_key_pointer = 0;
-
-			re =  dhmp_memory_register(dev->pd, &tmp_buff_ptr->buff_mr, TOTAL_SIZE);
-			if(re !=0)
-			{
-				ERROR_LOG("BUFF: malloc and register buff Fail!");
-				ibv_dereg_mr(tmp_buff_mate_ptr->buff_mate_mr.mr);
-				free(tmp_buff_mate_ptr->buff_mate_mr.addr);
-				free(tmp_buff_mate_ptr);
-				goto req_error;
-			}
-			tmp_buff_ptr->buff_addr = tmp_buff_ptr->buff_mr.addr;
-
-			/* Init buffer with zero, because we need use tag to indicate finishment */
-			memset(tmp_buff_ptr->buff_addr, 0, tmp_buff_ptr->size);	
-
-			/* At the very last moment can we assign value to global variables */
-			local_recv_buff = tmp_buff_ptr;
-			local_recv_buff_mate = tmp_buff_mate_ptr;
-
-			INFO_LOG("Local mate addr is %p, buff addr is %p", local_recv_buff_mate, local_recv_buff->buff_addr);
+			cli_mappings->resp_all_mapping.first_inited = true;
+			INFO_LOG("replica node[%d] first init finished!, caller is node[%d]", \
+						server_instance->server_id, req->node_id);
+			
+			set_table_init_state(true);
 		}
-		pthread_mutex_unlock(&buff_init_lock);
+		mehcached_shm_unlock();
 	}
 
-	/* It is safe for all node to copy mate data */
-	memcpy(&response.mr_buff, local_recv_buff_mate->buff_mate_mr.mr, sizeof(struct ibv_mr));
-	memcpy(&response.mr_data, local_recv_buff->buff_mr.mr, sizeof(struct ibv_mr));
+	copy_mapping_info( (void*) cli_mappings->resp_all_mapping.mehcached_shm_pages);
+	copy_mapping_mrs_info((struct ibv_mr *) (cli_mappings->resp_all_mapping.mrs));
 
-	DEBUG_LOG("BUFF: malloc Buffer addr sucess");
+	resp->req_ptr  = req->req_ptr;		    		// 原样返回对方用于消息完成时的报文的判别
+	resp->resp_ptr = resp;							// 自身用于消息完成时报文的判别
+	resp->node_id  = server_instance->server_id;	// 向对端发送自己的 node_id 用于身份辨识
+	resp->info_type = MICA_GET_CLIMR_RESPONSE;
+	resp->info_length = resp_len;
+	resp->done_flag = false;						// request_handler 不关心 done_flag（不需要阻塞）
 
-	res_msg.msg_type = DHMP_BUFF_MALLOC_RESPONSE;
-	res_msg.data_size = sizeof(struct dhmp_buff_response);
-	res_msg.data= &response;
-	dhmp_post_send(rdma_trans, &res_msg);
+	return resp;
+}
 
-	return ;
-req_error:
-	/*transmit a message of DHMP_MSG_MALLOC_ERROR*/
-	res_msg.msg_type=DHMP_BUFF_MALLOC_ERROR;
-	res_msg.data_size=sizeof(struct dhmp_buff_response);
-	res_msg.data=&response;
-	dhmp_post_send ( rdma_trans, &res_msg );
+static void 
+dhmp_mica_get_cli_MR_response_handler(struct dhmp_transport* rdma_trans,
+													struct dhmp_msg* msg)
+{
+	struct post_datagram *resp = (struct post_datagram *) (msg->data); 
 
-	return ;
+	struct dhmp_mica_get_cli_MR_response *resp_info = \
+			(struct dhmp_mica_get_cli_MR_response *) DATA_ADDR(resp, 0);
+
+	memcpy(resp_info->request.info_revoke_ptr, \
+		&resp_info->resp_all_mapping, sizeof(struct replica_mappings));
+
+	INFO_LOG("Node [%d] get mr info from node[%d]!", server_instance->server_id, resp->node_id);
+}
+
+static struct post_datagram * 
+dhmp_ack_request_handler(struct dhmp_transport* rdma_trans,
+							struct post_datagram *req)
+{
+	// 我们不拷贝直接复用 request post_datagram
+	struct post_datagram *resp;
+	struct dhmp_mica_ack_response * resp_data = (struct dhmp_mica_ack_response *) DATA_ADDR(req, 0);
+	enum ack_info_state resp_ack_state;
+
+	switch (req->info_type)
+	{
+	case MICA_INIT_ADDR_ACK:
+		mehcached_shm_lock();
+		if (false == get_table_init_state())
+			resp_ack_state = MICA_ACK_INIT_ADDR_NOT_OK;
+		else
+			resp_ack_state = MICA_ACK_INIT_ADDR_OK;
+		mehcached_shm_unlock();
+		break;
+	default:
+		break;
+	}
+
+	resp = req;											
+	resp->node_id	  = server_instance->server_id;
+	resp->resp_ptr    = resp;
+	resp->info_type   = MICA_ACK_RESPONSE;
+	resp->info_length = sizeof(struct dhmp_mica_ack_response);
+
+	// 虽然不可见，但是 ack request 的 post_datagram 结构体
+	// 的尾部有 dhmp_mica_ack_request 结构体，我们同样复用它
+	resp_data->ack_state = resp_ack_state;
+
+	return resp;
+}
+
+static void 
+dhmp_ack_response_handler(struct dhmp_transport* rdma_trans,
+													struct dhmp_msg* msg)
+{
+	struct post_datagram *resp = (struct post_datagram *) &(msg->data); 
+	struct post_datagram *req  = (struct post_datagram *) resp->req_ptr;
+
+	struct dhmp_mica_ack_request * req_info = \
+			(struct dhmp_mica_ack_request *) DATA_ADDR(req, 0);
+	struct dhmp_mica_ack_response *resp_info = \
+			(struct dhmp_mica_ack_response *) DATA_ADDR(resp, 0);
+
+	// 直接复用 dhmp_mica_ack_request 结构体放置返回值
+	req_info->ack_type = resp_info->ack_state;
 }
 
 
-// static void dhmp_ack_request_handler(struct dhmp_transport* rdma_trans,
-// 												struct dhmp_msg* msg)
-// {
-// 	/* Get ack flag type from struct dhmp_msg */
-// 	struct dhmp_ack_request ack;
-// 	memcpy(&ack, msg->data, sizeof(struct dhmp_ack_request));
-
-// 	switch (ack.ack_flag)
-// 	{
-// 		case middware_INIT:
-// 			INFO_LOG ( "Get ack:[middware_INIT] from node [%d]",  ack.node_id);
-// 			break;
-// 		case middware_WAIT_MAIN_NODE:
-// 			INFO_LOG ( "Get ack:[middware_WAIT_MAIN_NODE], from node [%d]",  ack.node_id);
-// 			break;
-// 		case middware_WAIT_SUB_NODE:
-// 			INFO_LOG ( "Get ack:[middware_WAIT_SUB_NODE], from node [%d]",  ack.node_id);
-// 			break;
-// 		case middware_WAIT_MATE_DATA:
-// 			INFO_LOG ( "Get ack:[middware_WAIT_MATE_DATA], from node [%d]",  ack.node_id);
-// 			break;
-// 		default:
-// 			INFO_LOG ( "Unkown middware state from node [%d]",  ack.node_id);
-// 			break;
-// 	}
-
-// 	pthread_mutex_lock(&server_instance->mutex_client_list);
-// 	list_for_each_entry(rdma_trans, &server_instance->client_list, client_entry)
-// 	{
-// 		if (rdma_trans->node_id == ack.node_id)
-// 		{
-// 			rdma_trans->trans_mid_state = ack.ack_flag;
-// 			break;
-// 		}
-// 	}
-// 	pthread_mutex_unlock(&server_instance->mutex_client_list);
-
-// 	return ;
-// }
-
-static void dhmp_ack_request_handler(struct dhmp_transport* rdma_trans,
-												struct dhmp_msg* msg)
+static struct post_datagram * 
+dhmp_node_id_request_handler(struct post_datagram *req)
 {
-	/* Get ack flag type from struct dhmp_msg */
-	struct dhmp_ack_request ack;
-	struct dhmp_ack_response response;
+	// 直接复用结构体
+	struct post_datagram *resp;
+	struct dhmp_get_nodeID_response * resp_data = \
+			(struct dhmp_get_nodeID_response *) DATA_ADDR(req, 0);
+
+	resp = req;											
+	resp->node_id	  = server_instance->server_id;
+	resp->resp_ptr    = resp;
+	resp->info_type   = MICA_SERVER_GET_CLINET_NODE_ID_RESPONSE;
+	resp->info_length = sizeof(struct dhmp_get_nodeID_response);
+
+	resp_data->resp_node_id = server_instance->server_id;
+
+	return resp;
+}
+
+static void 
+dhmp_node_id_response_handler(struct dhmp_transport* rdma_trans,
+										struct dhmp_msg* msg)
+{
+	struct post_datagram *resp = (struct post_datagram *) (msg->data); 
+	struct post_datagram *req = resp->req_ptr; 
+
+	struct dhmp_get_nodeID_response *resp_info = \
+			(struct dhmp_get_nodeID_response *) DATA_ADDR(resp, 0);
+
+	struct dhmp_get_nodeID_request *req_info = \
+			(struct dhmp_get_nodeID_request *) DATA_ADDR(req, 0);
+
+	req_info->node_id = resp_info->resp_node_id;
+
+}
+
+// 所有的双边 rdma 操作 request_handler 的路由入口
+// 这个函数只暴露基本的数据报 post_datagram 结构体，不涉及具体的数据报内容
+// 根据 info_type 去调用正确的回调函数对数据报进行处理。 
+static void dhmp_send_request_handler(struct dhmp_transport* rdma_trans,
+											struct dhmp_msg* msg)
+{
 	struct dhmp_msg res_msg;
+	struct dhmp_device * dev = dhmp_get_dev_from_server();
+	struct post_datagram *req;
+	struct post_datagram *resp;
+	req = (struct post_datagram*)msg->data;
 
-	memcpy(&ack, msg->data, sizeof(struct dhmp_ack_request));
-	response.node_id = server_instance->server_id;
-	memcpy(&response.req_info, &ack, sizeof(struct dhmp_ack_request));
-
-	switch (ack.ack_flag)
+	switch (req->info_type)
 	{
-		case RQ_BUFFER_STATE:
-			INFO_LOG ( "Get ack request :[RQ_BUFFER_STATE] from node [%d]",  ack.node_id);
-			pthread_mutex_lock(&buff_init_lock);
-			if(local_recv_buff == NULL || local_recv_buff_mate == NULL)
-				response.res_ack_flag = RS_BUFFER_NOREADY;
-			else
-				response.res_ack_flag = RS_BUFFER_READY;
-			pthread_mutex_unlock(&buff_init_lock);
+		case MICA_ACK_REQUEST:
+			INFO_LOG ( "Recv [MICA_ACK_REQUEST] from node [%d]",  req->node_id);	
+			resp = dhmp_ack_request_handler(rdma_trans, req);
+			break;	
+		case MICA_GET_CLIMR_REQUEST:
+			INFO_LOG ( "Recv [MICA_GET_CLIMR_REQUEST] from node [%d]",  req->node_id);	
+			resp = dhmp_mica_get_cli_MR_request_handler(rdma_trans, req);
+			break;
+		case MICA_SERVER_GET_CLINET_NODE_ID_REQUEST:
+			INFO_LOG ( "Recv [MICA_SERVER_GET_CLINET_NODE_ID_REQUEST] from node [%d]",  req->node_id);
+			resp = dhmp_node_id_request_handler(req);
 			break;
 		default:
-			ERROR_LOG ( "Get ack unkonwn response from node [%d]",  ack.node_id);
+			ERROR_LOG("Unknown request info_type %d", req->info_type);
+			exit(0);
 			break;
 	}
 
-	res_msg.msg_type = DHMP_ACK_RESPONSE;
-	res_msg.data_size = sizeof(struct dhmp_ack_response);
-	res_msg.data= &response;
+	res_msg.msg_type = DHMP_MICA_SEND_INFO_RESPONSE;
+	res_msg.data_size = DATAGRAM_ALL_LEN(resp->info_length);
+	res_msg.data= resp;
+	INFO_LOG("Send response msg length is [%u] KB", res_msg.data_size / 1024);
 	dhmp_post_send(rdma_trans, &res_msg);
+
+	// 需要注意的是，因为我们直接复用了 request ack 报文，所以 req->info_type 变成了
+	// resp 的类型，所以下面的 if 判断是用 req 的指针判断了 response 的消息
+	if (req->info_type != MICA_ACK_RESPONSE &&
+	    req->info_type != MICA_SERVER_GET_CLINET_NODE_ID_RESPONSE)
+		free((void*) resp);
 
 	return ;
 }
 
-static void dhmp_malloc_buff_response_handler(struct dhmp_transport* rdma_trans,
+static void 
+dhmp_send_respone_handler(struct dhmp_transport* rdma_trans,
 													struct dhmp_msg* msg)
-
 {
-	struct dhmp_buff_response response_msg;
-	struct dhmp_addr_info * buff_addr_info;
-	struct dhmp_addr_info * buff_mate_addr_info;
-	memcpy(&response_msg, msg->data, sizeof(struct dhmp_buff_response));
-	int peer_id = response_msg.node_id;
+	struct post_datagram *resp;
+	resp = (struct post_datagram*)msg->data;
 
-	buff_addr_info = response_msg.req_info.buff_addr_info;
-	buff_mate_addr_info = response_msg.req_info.buff_mate_addr_info;
-
-	buff_addr_info->read_cnt = 0;
-	buff_addr_info->write_cnt = 0;
-	buff_mate_addr_info->read_cnt = 0;
-	buff_mate_addr_info->write_cnt = 0;
-
-	memcpy(&buff_addr_info->nvm_mr, 	 &response_msg.mr_data, sizeof(struct ibv_mr));
-	memcpy(&buff_mate_addr_info->nvm_mr, &response_msg.mr_buff, sizeof(struct ibv_mr));
-
-	DEBUG_LOG("response buff mr addr %p", 			buff_addr_info->nvm_mr.addr);
-	DEBUG_LOG("response buff matedata mr addr %p",  buff_mate_addr_info->nvm_mr.addr);
-	response_msg.req_info.work->done_flag_recv = true;
-}
-
-static void dhmp_ack_response_handler(struct dhmp_transport* rdma_trans,
-													struct dhmp_msg* msg)
-
-{
-	struct dhmp_ack_response response_msg;
-	memcpy(&response_msg, msg->data, sizeof(struct dhmp_ack_response));
-	
-	switch (response_msg.res_ack_flag)
+	switch (resp->info_type)
 	{
-		case RS_INIT_READY:
-			INFO_LOG ( "Get ack response :[RS_INIT_READY] from node [%d]",  response_msg.node_id);
+		case MICA_ACK_RESPONSE:
+			INFO_LOG ( "Recv [MICA_ACK_RESPONSE] from node [%d]",  resp->node_id);
+			dhmp_ack_response_handler(rdma_trans, msg);
+			break;	
+		case MICA_GET_CLIMR_RESPONSE:
+			INFO_LOG ( "Recv [MICA_GET_CLIMR_RESPONSE] from node [%d]",  resp->node_id);
+			dhmp_mica_get_cli_MR_response_handler(rdma_trans, msg);
 			break;
-		case RS_INIT_NOREADY:
-			INFO_LOG ( "Get ack response :[RS_INIT_NOREADY] from node [%d]",  response_msg.node_id);
-			break;
-		case RS_BUFFER_READY:
-			INFO_LOG ( "Get ack response :[RS_BUFFER_READY] from node [%d]",  response_msg.node_id);
-			break;
-		case RS_BUFFER_NOREADY:
-			INFO_LOG ( "Get ack response :[RS_BUFFER_NOREADY] from node [%d]",  response_msg.node_id);
+		case MICA_SERVER_GET_CLINET_NODE_ID_RESPONSE:
+			INFO_LOG ( "Recv [MICA_SERVER_GET_CLINET_NODE_ID_RESPONSE] from node [%d]",  resp->node_id);
+			dhmp_node_id_response_handler(rdma_trans, msg);
 			break;
 		default:
-			ERROR_LOG ( "Unkown middware response ack from node [%d]", response_msg.node_id);
 			break;
 	}
 
-	response_msg.req_info.work->res_ack_flag = response_msg.res_ack_flag;
-	response_msg.req_info.work->done_flag_recv = true;
+	resp->req_ptr->done_flag = true;
 }
 
-static void dhmp_malloc_error_handler(struct dhmp_transport* rdma_trans, struct dhmp_msg* msg)
-{
-
-}
-
-
-static void dhmp_free_request_handler(struct dhmp_transport* rdma_trans, struct dhmp_msg* msg_ptr)
-{
-
-}
-
-static void dhmp_free_response_handler(struct dhmp_transport* rdma_trans, struct dhmp_msg* msg)
-{
-
-}
-
-static void dhmp_send_request_handler(struct dhmp_transport* rdma_trans, struct dhmp_msg* msg)
-{
-	struct dhmp_send_response response;
-	struct dhmp_msg res_msg;
-	void * server_addr = NULL;
-	void * temp;
-
-	memcpy ( &response.req_info, msg->data, sizeof(struct dhmp_send_request));
-	size_t length = response.req_info.req_size;
-	INFO_LOG ( "client operate size %d",length);
-
-	/*get server_instance addr from dhmp_addr
-		server_addr 来自client向server请求的地址
-	*/
-	server_addr = response.req_info.server_addr;
-
-	res_msg.msg_type=DHMP_MSG_SEND_RESPONSE;
-	
-	if(response.req_info.is_write == true) 
-	{
-		res_msg.data_size=sizeof(struct dhmp_send_response);
-		res_msg.data=&response;
-		/*may be need mutex*/
-		memcpy(server_addr, (msg->data+sizeof(struct dhmp_send_request)),length);
-	}
-	else
-	{
-		res_msg.data_size = sizeof(struct dhmp_send_response) + length;
-		temp = malloc(res_msg.data_size );
-		memcpy(temp,&response,sizeof(struct dhmp_send_response));
-		memcpy(temp+sizeof(struct dhmp_send_response),server_addr, length);
-		res_msg.data = temp;
-	}
-
-	dhmp_post_send(rdma_trans, &res_msg);
-}
-
-static void dhmp_send_response_handler(struct dhmp_transport* rdma_trans, struct dhmp_msg* msg)
-{
-	struct dhmp_send_response response_msg;
-
-	memcpy(&response_msg, msg->data, sizeof(struct dhmp_send_response));
-
-
-	if (!response_msg.req_info.is_write)
-	{
-		memcpy(response_msg.req_info.local_addr, 
-				msg->data + sizeof(struct dhmp_send_response), response_msg.req_info.req_size);
-	}
-
-	struct dhmp_send_work * task = response_msg.req_info.task;
-	task->recv_flag = true;
-}
 
 /**
  *	dhmp_wc_recv_handler:handle the IBV_WC_RECV event
  */
-void dhmp_wc_recv_handler(struct dhmp_transport* rdma_trans,
-										struct dhmp_msg* msg)
+void dhmp_wc_recv_handler(struct dhmp_transport* rdma_trans, struct dhmp_msg* msg)
 {
 	switch(msg->msg_type)
 	{
-		case DHMP_MSG_MALLOC_REQUEST:
-			dhmp_malloc_request_handler(rdma_trans, msg);
-			break;
-		case DHMP_MSG_MALLOC_RESPONSE:
-			dhmp_malloc_response_handler(rdma_trans, msg);
-			break;
-		case DHMP_MSG_MALLOC_ERROR:
-			dhmp_malloc_error_handler(rdma_trans, msg);
-			break;
-		case DHMP_MSG_FREE_REQUEST:
-			dhmp_free_request_handler(rdma_trans, msg);
-			break;
-		case DHMP_MSG_FREE_RESPONSE:
-			dhmp_free_response_handler(rdma_trans, msg);
-			break;
-		case DHMP_MSG_SEND_REQUEST:
+		case DHMP_MICA_SEND_INFO_REQUEST:
 			dhmp_send_request_handler(rdma_trans, msg);
 			break;
-		case DHMP_MSG_SEND_RESPONSE:
-			dhmp_send_response_handler(rdma_trans, msg);
+		case DHMP_MICA_SEND_INFO_RESPONSE:
+			dhmp_send_respone_handler(rdma_trans, msg);
 			break;
 
-		/* WGT:add new request handler */
-		case DHMP_BUFF_MALLOC_REQUEST:
-			dhmp_malloc_buff_request_handler(rdma_trans, msg);
-			break;
-		case DHMP_BUFF_MALLOC_RESPONSE:
-			dhmp_malloc_buff_response_handler(rdma_trans, msg);
-			break;
-		case DHMP_BUFF_MALLOC_ERROR:
-			break;
-		case DHMP_ACK_REQUEST:
-			dhmp_ack_request_handler(rdma_trans, msg);
-			break;
-		case DHMP_ACK_RESPONSE:
-			dhmp_ack_response_handler(rdma_trans, msg);
-			break;
-		case DHMP_MSG_MEM_CHANGE:
-			//dhmp_mem_change_handle(rdma_trans, msg);
-			break;
-		case DHMP_MSG_APPLY_DRAM_REQUEST:
-			//dhmp_apply_dram_request_handler(rdma_trans, msg);
-			break;
-		case DHMP_MSG_APPLY_DRAM_RESPONSE:
-			//dhmp_apply_dram_response_handler(rdma_trans, msg);
-			break;
-		case DHMP_MSG_CLEAR_DRAM_REQUEST:
-			//dhmp_clear_dram_request_handler(rdma_trans, msg);
-			break;
-		case DHMP_MSG_CLEAR_DRAM_RESPONSE:
-			//dhmp_clear_dram_response_handler(rdma_trans, msg);
-			break;
-		case DHMP_MSG_SERVER_INFO_REQUEST:
-			//dhmp_server_info_request_handler(rdma_trans, msg);
-			break;
-		case DHMP_MSG_SERVER_INFO_RESPONSE:
-			//dhmp_server_info_response_handler(rdma_trans, msg);
-			break;
 		case DHMP_MSG_CLOSE_CONNECTION:
 			rdma_disconnect(rdma_trans->cm_id);
+			break;
+		default:
 			break;
 	}
 }
