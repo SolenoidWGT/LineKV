@@ -22,6 +22,7 @@
 #include "json-c/json.h"
 #include "basic_types.h"
 #include "common.h"
+#include "table.h"
 
 #define MEHCACHED_SHM_MAX_PAGES (65536)
 #define MEHCACHED_SHM_MAX_ENTRIES (8192)
@@ -35,7 +36,7 @@ struct mehcached_shm_mapping
 	size_t num_pages;
 #ifdef USE_RDMA
 	// 存放本节点的MR，同时存放下游节点的MR，头节点MR[0]为NULL，尾节点MR[1]为NULL
-	struct ibv_mr * mr[2];  
+	struct ibv_mr * mr;  
 #endif
 };
 
@@ -53,4 +54,7 @@ void copy_mapping_info(void * src);
 void copy_mapping_mrs_info(struct ibv_mr * mrs);
 inline size_t get_mapping_nums();
 
+
+struct ibv_mr * mehcached_get_mapping_self_mr(size_t mapping_id);
+void makeup_update_request(struct mehcached_item * item, uint64_t item_offset, const uint8_t *value, uint32_t value_length);
 #endif

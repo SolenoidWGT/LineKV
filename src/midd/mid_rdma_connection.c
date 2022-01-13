@@ -9,10 +9,7 @@
 #include "dhmp_server.h"
 #include "dhmp_log.h"
 #include "dhmp_client.h"
-
 void dhmp_event_channel_handler(int fd, void* data);
-
-
 int dhmp_transport_listen(struct dhmp_transport* rdma_trans, int listen_port)
 {
 	int retval=0, backlog;
@@ -325,7 +322,9 @@ struct dhmp_transport* dhmp_transport_create(struct dhmp_context* ctx,
 	rdma_trans->is_listen = is_listen;
 	rdma_trans->node_id = peer_node_id;
 	rdma_trans->trans_mid_state = middware_INIT;
-	
+	rdma_trans->recv_mr_lock = 0UL;
+	rdma_trans->send_mr_lock = 0UL;
+
 	err=dhmp_event_channel_create(rdma_trans);
 	if(err)
 	{
@@ -438,7 +437,7 @@ static int on_cm_route_resolved(struct rdma_cm_event* event, struct dhmp_transpo
 		ERROR_LOG("rdma connect error.");
 		goto cleanqp;
 	}
-	INFO_LOG("on_cm_route_resolved sucess!");
+	INFO_LOG("on_cm_route_resolved success!");
 	dhmp_post_all_recv(rdma_trans);
 	return retval;
 
@@ -544,10 +543,10 @@ static int on_cm_established(struct rdma_cm_event* event, struct dhmp_transport*
 	// 		exit(0);
 	// 	}
 	// 	rdma_trans->node_id = peer_id;
-	// 	INFO_LOG("MICA server on_cm_established get client id is [%d], sucess!", rdma_trans->node_id);
+	// 	INFO_LOG("MICA server on_cm_established get client id is [%d], success!", rdma_trans->node_id);
 	// }
 	// else
-	// 	INFO_LOG("MICA client on_cm_established sucess with server [%d]!", rdma_trans->node_id);
+	// 	INFO_LOG("MICA client on_cm_established success with server [%d]!", rdma_trans->node_id);
 
 	return retval;
 }
@@ -777,8 +776,7 @@ find_connect_server_by_nodeID(int node_id)
 		{
 			if (client_mgr->connect_trans[trans_id]->node_id == node_id)
 			{
-				if (client_mgr->connect_trans[node_id]->trans_state == 
-					DHMP_TRANSPORT_STATE_CONNECTED)
+				if (client_mgr->connect_trans[node_id]->trans_state == DHMP_TRANSPORT_STATE_CONNECTED)
 					return client_mgr->connect_trans[node_id];
 				else
 				{
@@ -788,7 +786,8 @@ find_connect_server_by_nodeID(int node_id)
 			}
 		}
 	}
-	ERROR_LOG("target node trans [%d] does not exited!", node_id);
+	ERROR_LOG("target node trans [%d] does not exist!", node_id);
+	Assert(false);
 	return NULL;
 }
 

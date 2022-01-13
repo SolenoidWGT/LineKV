@@ -1,18 +1,21 @@
 #!/bin/bash
 #export HOME='/home/gtwang'
-if [ ! -f "./build" ];then
+if [ ! -f "./build" ];
+then
 rm -rf ./build
 fi
 
-if [ ! -f "./bin" ];then
+if [ ! -f "./bin" ];
+then
 rm -rf ./bin
 fi
 
-if [ ! -f "./lib" ];then
+if [ ! -f "./lib" ];
+then
 rm -rf ./lib
 fi
 
 mkdir build &&
 cd build &&
-cmake .. &&
+NDEBUG=no NLOCAL=no NCLIENT=yes NSERVER=yes cmake .. &&
 make

@@ -281,6 +281,14 @@ struct dhmp_server * dhmp_server_init()
 				SET_MIRROR(server_instance->server_type);
 			else
 				SET_REPLICA(server_instance->server_type);
+			
+			// 尾节点单独 set 标志位
+			if (server_instance->server_id == server_instance->node_nums - 1)
+				SET_TAIL(server_instance->server_type);
+			
+			// 非主节点的头副本节点
+			if (server_instance->server_id == 2)
+				SET_HEAD(server_instance->server_type);
 
 			MID_LOG("Server's node id is [%d], node_nums is [%d], server_type is %d", \
 					server_instance->server_id, server_instance->node_nums, server_instance->server_type);
@@ -300,7 +308,7 @@ struct dhmp_server * dhmp_server_init()
 	{
 		re = ibv_query_port(dhmp_get_dev_from_server()->verbs, port_num , &port_info);
 		if (re) {
-			fprintf(stderr, "Error, failed to query port %d attributes in device '%s'\n",
+			fprintf(stderr, "Error, failed to query port %d attributes in device '%s'",
 				port_num, ibv_get_device_name(dhmp_get_dev_from_server()->verbs->device));
 			return NULL;
 		}

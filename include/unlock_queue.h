@@ -20,5 +20,5 @@ void popQueue(unQueue *q);
 int emptyQueue(unQueue *q);
 void topQueue(unQueue *q, void* buff);
 
-
+extern unQueue* sending_queue;
 #endif

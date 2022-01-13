@@ -51,7 +51,7 @@ mehcached_dynamic_init(struct mehcached_dynamic *alloc, uint64_t size, bool conc
     size_t shm_id = mehcached_shm_alloc(size, numa_node);
     if (shm_id == (size_t)-1)
     {
-        INFO_LOG("failed to allocate memory\n");
+        INFO_LOG("failed to allocate memory");
         Assert(false);
     }
     while (true)
@@ -60,7 +60,7 @@ mehcached_dynamic_init(struct mehcached_dynamic *alloc, uint64_t size, bool conc
         // if (alloc->data == NULL)
         //     Assert(false);
 
-        size_t mapping_id  = mehcached_shm_map(shm_id, alloc->data,(void**) &alloc->data, 0, size);
+        size_t mapping_id  = mehcached_shm_map(shm_id, alloc->data,(void**) &alloc->data, 0, size, false);
         if (mapping_id != (size_t) -1)
         {
             alloc->mapping_id = mapping_id;
@@ -166,7 +166,7 @@ static
 void mehcached_dynamic_remove_free_chunk_from_free_list(struct mehcached_dynamic *alloc, uint8_t *chunk_start, uint64_t chunk_size)
 {
 #ifdef MEHCACHED_VERBOSE
-    INFO_LOG("mehcached_dynamic_remove_free_chunk_from_free_list: start=%p size=%lu\n", chunk_start, chunk_size);
+    INFO_LOG("mehcached_dynamic_remove_free_chunk_from_free_list: start=%p size=%lu", chunk_start, chunk_size);
 #endif
 
     uint8_t *prev_chunk_start = *(uint8_t **)(chunk_start + 8);
@@ -199,7 +199,7 @@ mehcached_dynamic_remove_free_chunk_from_head(struct mehcached_dynamic *alloc, u
     if (chunk_class == MEHCACHED_DYNAMIC_NUM_CLASSES)
     {
 #ifdef MEHCACHED_VERBOSE
-        INFO_LOG("mehcached_dynamic_remove_free_chunk_from_head: minsize=%lu no space\n", minimum_chunk_size);
+        INFO_LOG("mehcached_dynamic_remove_free_chunk_from_head: minsize=%lu no space", minimum_chunk_size);
 #endif
         return false;
     }
@@ -217,7 +217,7 @@ mehcached_dynamic_remove_free_chunk_from_head(struct mehcached_dynamic *alloc, u
     *out_chunk_start = chunk_start;
     *out_chunk_size = chunk_size;
 #ifdef MEHCACHED_VERBOSE
-    INFO_LOG("mehcached_dynamic_remove_free_chunk_from_head: minsize=%lu start=%p size=%lu\n", minimum_chunk_size, *out_chunk_start, *out_chunk_size);
+    INFO_LOG("mehcached_dynamic_remove_free_chunk_from_head: minsize=%lu start=%p size=%lu", minimum_chunk_size, *out_chunk_start, *out_chunk_size);
 #endif
     return true;
 }
@@ -232,7 +232,7 @@ mehcached_dynamic_reset(struct mehcached_dynamic *alloc)
     mehcached_dynamic_insert_free_chunk(alloc, alloc->data, alloc->size);
 }
 
-static
+
 struct mehcached_alloc_item *
 mehcached_dynamic_item(const struct mehcached_dynamic *alloc, uint64_t dynamic_offset)
 {
@@ -255,7 +255,7 @@ mehcached_dynamic_coalese_free_chunk_left(struct mehcached_dynamic *alloc, uint8
     Assert(*(uint64_t *)adj_chunk_start == *(uint64_t *)(adj_chunk_start + adj_chunk_size - 8));
 
 #ifdef MEHCACHED_VERBOSE
-    INFO_LOG("mehcached_dynamic_coalese_free_chunk_left: start=%p size=%lu left=%lu\n", *chunk_start, *chunk_size, adj_chunk_size);
+    INFO_LOG("mehcached_dynamic_coalese_free_chunk_left: start=%p size=%lu left=%lu", *chunk_start, *chunk_size, adj_chunk_size);
 #endif
 
     mehcached_dynamic_remove_free_chunk_from_free_list(alloc, adj_chunk_start, adj_chunk_size);
@@ -279,7 +279,7 @@ mehcached_dynamic_coalese_free_chunk_right(struct mehcached_dynamic *alloc, uint
     Assert(*(uint64_t *)adj_chunk_start == *(uint64_t *)(adj_chunk_start + adj_chunk_size - 8));
 
 #ifdef MEHCACHED_VERBOSE
-    INFO_LOG("mehcached_dynamic_coalese_free_chunk_right: start=%p size=%lu right=%lu\n", *chunk_start, *chunk_size, adj_chunk_size);
+    INFO_LOG("mehcached_dynamic_coalese_free_chunk_right: start=%p size=%lu right=%lu", *chunk_start, *chunk_size, adj_chunk_size);
 #endif
 
     mehcached_dynamic_remove_free_chunk_from_free_list(alloc, adj_chunk_start, adj_chunk_size);
@@ -313,7 +313,7 @@ mehcached_dynamic_allocate(struct mehcached_dynamic *alloc, uint32_t item_size)
         leftover_chunk_size = 0;
 
 #ifdef MEHCACHED_VERBOSE
-    INFO_LOG("mehcached_dynamic_allocate: item_size=%u minsize=%lu start=%p size=%lu (leftover=%lu)\n", item_size, minimum_chunk_size, chunk_start, chunk_size, leftover_chunk_size);
+    INFO_LOG("mehcached_dynamic_allocate: item_size=%u minsize=%lu start=%p size=%lu (leftover=%lu)", item_size, minimum_chunk_size, chunk_start, chunk_size, leftover_chunk_size);
 #endif
 
     *(uint64_t *)chunk_start = *(uint64_t *)(chunk_start + chunk_size - 8) = MEHCACHED_DYNAMIC_TAG_VEC(chunk_size, MEHCACHED_DYNAMIC_OCCUPIED);
@@ -335,7 +335,7 @@ mehcached_dynamic_deallocate(struct mehcached_dynamic *alloc, uint64_t dynamic_o
     uint64_t chunk_size = MEHCACHED_DYNAMIC_TAG_SIZE(*(uint64_t *)chunk_start);
 
 #ifdef MEHCACHED_VERBOSE
-    INFO_LOG("mehcached_dynamic_deallocate: start=%p size=%lu\n", chunk_start, chunk_size);
+    INFO_LOG("mehcached_dynamic_deallocate: start=%p size=%lu", chunk_start, chunk_size);
 #endif
 
     mehcached_dynamic_coalese_free_chunk_left(alloc, &chunk_start, &chunk_size);

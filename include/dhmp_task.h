@@ -31,6 +31,9 @@ struct dhmp_task* dhmp_read_task_create(struct dhmp_transport* rdma_trans,
 struct dhmp_task* dhmp_write_task_create(struct dhmp_transport* rdma_trans,
 										struct dhmp_send_mr *smr,
 										int length);
+
+// void rdma_trans_send_mr_lock(struct dhmp_transport* rdma_trans);
+// void rdma_trans_send_mr_unlock(struct dhmp_transport* rdma_trans);
 #endif
 
 

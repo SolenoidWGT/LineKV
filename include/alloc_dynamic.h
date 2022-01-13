@@ -76,7 +76,6 @@ static
 void
 mehcached_dynamic_unlock(struct mehcached_dynamic *alloc);
 
-static
 struct mehcached_alloc_item *
 mehcached_dynamic_item(const struct mehcached_dynamic *alloc, uint64_t dynamic_offset);
 

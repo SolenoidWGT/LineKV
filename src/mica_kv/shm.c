@@ -109,7 +109,7 @@ mehcached_shm_dump_page_info()
 		if (mehcached_shm_pages[page_id].addr == NULL)
 			continue;
 
-		INFO_LOG("page %zu: addr=%p numa_node=%zu in_use=%zu\n", page_id, mehcached_shm_pages[page_id].addr, mehcached_shm_pages[page_id].numa_node, mehcached_shm_pages[page_id].in_use);
+		INFO_LOG("page %zu: addr=%p numa_node=%zu in_use=%zu", page_id, mehcached_shm_pages[page_id].addr, mehcached_shm_pages[page_id].numa_node, mehcached_shm_pages[page_id].in_use);
 	}
 	mehcached_shm_unlock();
 }
@@ -170,7 +170,7 @@ mehcached_shm_find_free_address(size_t size)
 
 	if (mehcached_next_power_of_two(alignment) != alignment)
 	{
-		INFO_LOG("invalid alignment\n");
+		INFO_LOG("invalid alignment");
 		return NULL;
 	}
 
@@ -205,7 +205,7 @@ mehcached_shm_find_free_address(size_t size)
 size_t
 mehcached_shm_alloc(size_t length, size_t numa_node)
 {
-	INFO_LOG("\n");
+	INFO_LOG("");
     INFO_LOG("NOTICE: mehcached_shm_alloc not work! : %u %u", length, numa_node);
     return 0;
 }
@@ -226,14 +226,16 @@ mehcached_shm_schedule_remove(size_t entry_id)
 
 /*
  * 将一个和page大小对齐的虚拟地址起始地址映射到大页上
+ * 
  */
 size_t
-mehcached_shm_map(size_t entry_id, void *ptr, void ** bucket_ptr, size_t offset, size_t length)
+mehcached_shm_map(size_t entry_id, void *ptr, void ** bucket_ptr, 
+					size_t offset, size_t length, bool table_init)
 {
 	// ptr 的起始地址必须和 page 大小对齐
 	if (((size_t)ptr & ~(mehcached_shm_page_size - 1)) != (size_t)ptr)
 	{
-		INFO_LOG("invalid ptr alignment\n");
+		ERROR_LOG("invalid ptr alignment");
 		exit(0);
 		return (size_t)-1;
 	}
@@ -241,7 +243,7 @@ mehcached_shm_map(size_t entry_id, void *ptr, void ** bucket_ptr, size_t offset,
 	// offset 也必须要和 page 大小对齐
 	if ((offset & ~(mehcached_shm_page_size - 1)) != offset)
 	{
-		INFO_LOG("invalid offset alignment\n");
+		ERROR_LOG("invalid offset alignment");
 		return (size_t)-1;
 	}
 
@@ -259,7 +261,7 @@ mehcached_shm_map(size_t entry_id, void *ptr, void ** bucket_ptr, size_t offset,
 
 	if (mapping_id == MEHCACHED_SHM_MAX_MAPPINGS)
 	{
-		INFO_LOG("too many mappings\n");
+		ERROR_LOG("too many mappings");
 		if (get_table_init_state())
 			mehcached_shm_unlock();
 		return (size_t)-1;
@@ -285,7 +287,7 @@ mehcached_shm_map(size_t entry_id, void *ptr, void ** bucket_ptr, size_t offset,
 
     if (ret_p == MAP_FAILED)
     {
-        INFO_LOG("mmap failed at %p\n", p);
+        ERROR_LOG("mmap failed at %p", p);
         error = 1;
     }
 
@@ -306,32 +308,33 @@ mehcached_shm_map(size_t entry_id, void *ptr, void ** bucket_ptr, size_t offset,
 	}
 
 #ifdef USE_RDMA
-		if (server_instance->server_type != MAIN)
+	if (!IS_MAIN(server_instance->server_type) /* && table_init == false*/)
+	{
+		struct dhmp_device * dev = dhmp_get_dev_from_server();
+		struct ibv_mr * mr=ibv_reg_mr(dev->pd, p, total_alloc_pages, 
+										IBV_ACCESS_LOCAL_WRITE|
+										IBV_ACCESS_REMOTE_READ|
+										IBV_ACCESS_REMOTE_WRITE|
+										IBV_ACCESS_REMOTE_ATOMIC);
+		if(!mr)	
 		{
-			struct dhmp_device * dev = dhmp_get_dev_from_server();
-			struct ibv_mr * mr=ibv_reg_mr(dev->pd, p, total_alloc_pages, 
-											IBV_ACCESS_LOCAL_WRITE|
-											IBV_ACCESS_REMOTE_READ|
-											IBV_ACCESS_REMOTE_WRITE|
-											IBV_ACCESS_REMOTE_ATOMIC);
-			if(!mr)	
-			{
-				ERROR_LOG("rdma register memory error. register mem length is [%u], error number is [%d], reason is \"%s\"", \
-									total_alloc_pages, errno, strerror(errno));
-				mehcached_shm_unlock();
-				Assert(false);
-			}
-
-			mehcached_shm_mappings[mapping_id].mr[0] = mr;
+			ERROR_LOG("rdma register memory error. register mem length is [%u], error number is [%d], reason is \"%s\"", \
+								total_alloc_pages, errno, strerror(errno));
+			mehcached_shm_unlock();
+			Assert(false);
 		}
-		else
-			mehcached_shm_mappings[mapping_id].mr[0] = NULL;
+
+		mehcached_shm_mappings[mapping_id].mr = mr;
+	}
+	else
+		mehcached_shm_mappings[mapping_id].mr = NULL;
+
 #endif
 	// register mapping
 	mehcached_shm_used_memory += num_pages * mehcached_shm_page_size;
 
 	mehcached_shm_mappings[mapping_id].entry_id = entry_id;
-	mehcached_shm_mappings[mapping_id].addr = ptr;
+	mehcached_shm_mappings[mapping_id].addr = ret_p;
 	mehcached_shm_mappings[mapping_id].length = length;
 	mehcached_shm_mappings[mapping_id].page_offset = page_offset;
 	mehcached_shm_mappings[mapping_id].num_pages = num_pages;
@@ -362,7 +365,7 @@ mehcached_shm_unmap(void *ptr)
 
 	if (mapping_id == MEHCACHED_SHM_MAX_MAPPINGS)
 	{
-		INFO_LOG("invalid unmap\n");
+		ERROR_LOG("invalid unmap");
 		mehcached_shm_unlock();
 		return false;
 	}
@@ -385,7 +388,7 @@ mehcached_shm_unmap(void *ptr)
 	mehcached_shm_unlock();
 
 #ifndef NDEBUG
-	INFO_LOG("removed mapping %zu at %p\n", mapping_id, ptr);
+	INFO_LOG("removed mapping %zu at %p", mapping_id, ptr);
 #endif
 
 	return true;
@@ -404,12 +407,6 @@ mehcached_shm_get_memuse()
 }
 
 #ifdef USE_RDMA
-struct ibv_mr * 
-mehcached_get_mapping_self_mr(size_t mapping_id)
-{
-	return mehcached_shm_mappings[mapping_id].mr[0];
-}
-
 inline size_t get_mapping_nums()
 {
 	return used_mapping_nums;
@@ -421,6 +418,12 @@ void copy_mapping_info(void * src)
 		sizeof(MEHCACHED_SHM_MAX_MAPPINGS * sizeof(struct mehcached_shm_mapping)));
 }
 
+
+void dump_mr(struct ibv_mr * mr)
+{
+	INFO_LOG("MR INFO: %p, %u, %p", mr->addr, mr->lkey, mr->context);
+}
+
 void copy_mapping_mrs_info(struct ibv_mr * mrs)
 {
 	size_t i;
@@ -429,11 +432,15 @@ void copy_mapping_mrs_info(struct ibv_mr * mrs)
 		INFO_LOG("mapping id is %u", i);
 		// 只拷贝第一个 MR
 		if (mehcached_shm_mappings[i].mr)
-			memcpy(&mrs[i], &mehcached_shm_mappings[i].mr, sizeof(struct ibv_mr));
+		{
+			dump_mr(mehcached_shm_mappings[i].mr);
+			memcpy(&mrs[i], mehcached_shm_mappings[i].mr, sizeof(struct ibv_mr));
+		}
 		else
 		{
-			ERROR_LOG("Unexpected NULL ptr!");
-			exit(0);
+			ERROR_LOG("Unexpected NULL ptr! [%d]", i);
+			// assert(false);
+			memset(&mrs[i], 0, sizeof(struct ibv_mr));
 		}
 	}
 }

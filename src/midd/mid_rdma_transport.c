@@ -104,7 +104,6 @@ void dhmp_post_send(struct dhmp_transport* rdma_trans, struct dhmp_msg* msg_ptr)
 		ERROR_LOG ( "ibv_post_send error." );
 }
 
-
 /*
 one side rdma
 */
@@ -273,9 +272,11 @@ error:
 }
 
 // WGT
-int dhmp_rdma_write ( struct dhmp_transport* rdma_trans, struct dhmp_addr_info *addr_info, 
-								struct ibv_mr* mr, void* local_addr, int length,
-								off_t offset)
+int dhmp_rdma_write (struct dhmp_transport* rdma_trans,
+						struct ibv_mr* mr, 
+						void* local_addr, 
+						size_t length,
+						uintptr_t remote_addr)
 {
 	struct timespec start_time, end_time;
 
@@ -286,19 +287,19 @@ int dhmp_rdma_write ( struct dhmp_transport* rdma_trans, struct dhmp_addr_info *
 	int err=0;
 	
 	//clock_gettime(CLOCK_MONOTONIC, &start_time);
-	smr=dhmp_get_mr_from_send_list(rdma_trans, local_addr, length);
+	smr=dhmp_get_mr_from_send_list(rdma_trans, local_addr, (int)length);
 	// clock_gettime(CLOCK_MONOTONIC, &end_time);
 	// get_mr_time += ((end_time.tv_sec * 1000000000) + end_time.tv_nsec) -
     //                     ((start_time.tv_sec * 1000000000) + start_time.tv_nsec);
 						
-	write_task=dhmp_write_task_create(rdma_trans, smr, length);
+	write_task=dhmp_write_task_create(rdma_trans, smr, (int)length);
 	if(!write_task)
 	{
 		ERROR_LOG("allocate memory error.");
 		return -1;
 	}
-	write_task->addr_info=addr_info;
-	
+	// write_task->addr_info=addr_info;
+
 	memset(&send_wr, 0, sizeof(struct ibv_send_wr));
 
 	send_wr.wr_id= ( uintptr_t ) write_task;
@@ -307,7 +308,7 @@ int dhmp_rdma_write ( struct dhmp_transport* rdma_trans, struct dhmp_addr_info *
 	send_wr.num_sge=1;
 	send_wr.send_flags=IBV_SEND_SIGNALED;
 	// send_wr.wr.rdma.remote_addr= ( uintptr_t ) mr->addr; 
-	send_wr.wr.rdma.remote_addr= ( uintptr_t )(( uintptr_t )mr->addr + offset);  // WGT
+	send_wr.wr.rdma.remote_addr= remote_addr;  // WGT
 	send_wr.wr.rdma.rkey=mr->rkey;
 
 	sge.addr= ( uintptr_t ) write_task->sge.addr;
@@ -478,3 +479,21 @@ error:
 	free(res);
 	return NULL;
 }
+
+int dhmp_rdma_write_packed (struct dhmp_write_request * write_req)
+{
+	return dhmp_rdma_write(write_req->rdma_trans, write_req->mr, \
+			write_req->local_addr, write_req->length, write_req->remote_addr);	
+}
+
+int dhmp_rdma_write_mica_warpper (struct dhmp_transport* rdma_trans,
+						struct mehcached_item * item,
+						struct ibv_mr* mr, 
+						size_t length,
+						uintptr_t remote_addr)
+{
+	dhmp_rdma_write(rdma_trans, mr, 
+					(void*)item_get_value_addr(item), 
+					VALUE_HEADER_LEN + length  + VALUE_TAIL_LEN, 
+					remote_addr);
+}						

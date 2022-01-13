@@ -77,7 +77,10 @@ struct dhmp_transport{
 	bool is_listen;	// 新增的 rdma_trans 标识，如果为true则表示该 trans 是一个 server监听trans
 	bool is_active;	// 如果为 true 表示该节点是主动与对方建立连接
 	struct rdma_conn_param  connect_params;		/* WGT */
-	enum middware_state trans_mid_state;			/* WGT: mark this trans is at which middware stage */
+	enum middware_state trans_mid_state;		/* WGT: mark this trans is at which middware stage */
+
+	uint64_t send_mr_lock;
+	uint64_t recv_mr_lock;
 	struct list_head client_entry;
 };
 
@@ -123,10 +126,11 @@ void dhmp_post_recv(struct dhmp_transport* rdma_trans, void *addr);
 int dhmp_rdma_read_after_write ( struct dhmp_transport* rdma_trans, struct dhmp_addr_info *addr_info, \
 				struct ibv_mr* mr, void* local_addr, int length);
 
-int dhmp_rdma_write ( struct dhmp_transport* rdma_trans, struct dhmp_addr_info *addr_info, 
-								struct ibv_mr* mr, void* local_addr, int length,
-								off_t offset);
-
+int dhmp_rdma_write ( struct dhmp_transport* rdma_trans,
+							struct ibv_mr* mr, 
+							void* local_addr, 
+							size_t length,
+							uintptr_t remote_addr);
 
 int dhmp_rdma_read(struct dhmp_transport* rdma_trans, struct ibv_mr* mr, void* local_addr, int length, 
 						off_t offset);
@@ -139,5 +143,12 @@ struct dhmp_transport* find_connect_server_by_nodeID(int node_id);
 struct dhmp_transport* dhmp_client_node_select_head();
 extern int client_find_server_id();
 extern int find_next_node(int id);
+
+void dhmp_post_send_new(struct dhmp_transport* rdma_trans, struct dhmp_msg* msg_ptr);
+int dhmp_rdma_write_mica_warpper (struct dhmp_transport* rdma_trans,
+						struct mehcached_item * item,
+						struct ibv_mr* mr, 
+						size_t length,
+						uintptr_t remote_addr);
 #endif
 

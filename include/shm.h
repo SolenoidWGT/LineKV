@@ -38,7 +38,8 @@ bool
 mehcached_shm_schedule_remove(size_t entry_id);
 
 size_t
-mehcached_shm_map(size_t entry_id, void *ptr, void **bucket_ptr, size_t offset, size_t length);
+mehcached_shm_map(size_t entry_id, void *ptr, void ** bucket_ptr, 
+					size_t offset, size_t length, bool table_init);
 
 bool
 mehcached_shm_unmap(void *ptr);
@@ -75,11 +76,6 @@ mehcached_shm_lock();
 
 void
 mehcached_shm_unlock();
-
-#ifdef USE_RDMA
-struct ibv_mr * 
-mehcached_get_mapping_self_mr(size_t page_id);
-#endif 
 
 MEHCACHED_END
 

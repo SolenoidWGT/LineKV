@@ -43,4 +43,9 @@ void dhmp_log_impl(const char *file, unsigned line, const char *func,
 									## __VA_ARGS__)
 #define MID_LOG(fmt, ...)		dhmp_log(DHMP_LOG_LEVEL_MID, fmt,\
 									## __VA_ARGS__)
+
+void cal_time(struct timespec * start, struct timespec *end, const char * commit);			
+extern struct timespec SP_start, SP_end;
+extern unsigned long long mica_total_time;
+
 #endif

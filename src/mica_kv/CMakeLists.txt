@@ -50,7 +50,6 @@ set(SOURCES ${SOURCES} hash.c)
 set(SOURCES ${SOURCES} city.c)
 # set(SOURCES ${SOURCES} stopwatch.c)
 set(SOURCES ${SOURCES} shm.c)
-set(SOURCES ${SOURCES} shm_init.c)
 
 # common libraries
 # set(LIBRARIES ${LIBRARIES} rt crypto perf_count m pthread)

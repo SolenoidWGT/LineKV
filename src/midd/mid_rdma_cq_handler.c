@@ -47,7 +47,7 @@ static void dhmp_wc_success_handler(struct ibv_wc* wc)
 				pthread_mutex_unlock(&client_mgr->mutex_send_mr_list);
 			}
 #endif
-			task_ptr->addr_info->write_flag=false;
+			// task_ptr->addr_info->write_flag=false;
 			task_ptr->done_flag=true;
 			break;
 		case IBV_WC_RDMA_READ:

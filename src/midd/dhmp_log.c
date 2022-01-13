@@ -9,6 +9,8 @@
 #define LOG_TIME_FMT "%04d/%02d/%02d-%02d:%02d:%02d.%05ld"
 
 enum dhmp_log_level global_log_level=DHMP_LOG_LEVEL_MID;
+struct timespec SP_start, SP_end;
+unsigned long long mica_total_time;
 
 const char *const level_str[]=
 {
@@ -56,6 +58,13 @@ void dhmp_log_impl(const char * file, unsigned line, const char * func, unsigned
 
 	fflush(stderr);
 }
+#define TIME 
 
-
-
+void cal_time(struct timespec * start, struct timespec *end, const char * commit)
+{
+#ifdef TIME
+    unsigned long long ttime = ((end->tv_sec * 1000000000) + end->tv_nsec) -
+            ((start->tv_sec * 1000000000) + start->tv_nsec); 
+    INFO_LOG("Time \"%s\" is [%lf]us", commit, (double)(ttime)/1000);
+#endif
+}
