@@ -230,7 +230,7 @@ mehcached_shm_schedule_remove(size_t entry_id)
  */
 size_t
 mehcached_shm_map(size_t entry_id, void *ptr, void ** bucket_ptr, 
-					size_t offset, size_t length, bool table_init)
+					size_t offset, size_t length, bool table_init MEHCACHED_UNUSED)
 {
 	// ptr 的起始地址必须和 page 大小对齐
 	if (((size_t)ptr & ~(mehcached_shm_page_size - 1)) != (size_t)ptr)

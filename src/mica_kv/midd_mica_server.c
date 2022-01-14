@@ -114,17 +114,19 @@ cmp_item_value(size_t a_value_length, const uint8_t *a_out_value, size_t b_value
 void dump_value_by_addr(const uint8_t * value, size_t value_length)
 {
     uint64_t header_v, tail_v, value_count;
-    const uint8_t * value_base;
+    
     bool dirty;
 
     header_v = *(uint64_t*) value;
     value_count = *(uint64_t*) (value + sizeof(uint64_t));
-    value_base = (value + 2 * sizeof(uint64_t));
     tail_v = *(uint64_t*) (value + 2*sizeof(uint64_t) + GET_TRUE_VALUE_LEN(value_length));
     dirty = *(bool*)(value + 3*sizeof(uint64_t) + GET_TRUE_VALUE_LEN(value_length));
 
     INFO_LOG("value header_v is %lu, value_count is %lu, tail_v is %lu, dirty is %d", header_v,value_count,tail_v, dirty);
-    HexDump(value_base, (int)GET_TRUE_VALUE_LEN(value_length), (int) value_base);
+#ifdef DUMP_VALUE
+    const uint8_t * value_base  = (value + 2 * sizeof(uint64_t));
+    HexDump(value_base, (int)(GET_TRUE_VALUE_LEN(value_length)), (int) value_base);
+#endif
 }
 
 
@@ -263,7 +265,7 @@ void test_get_consistent(struct test_kv * kvs)
 }
 
 void
-test_set()
+test_set(struct test_kv * kvs, size_t val_offset)
 {
     INFO_LOG("---------------------------test_set()---------------------------");
     Assert(main_table);
@@ -272,23 +274,25 @@ test_set()
     size_t nid;
     struct set_requset_pack *req_callback_ptr = (struct set_requset_pack *)\
             malloc(sizeof(struct set_requset_pack) * server_instance->node_nums);
-    struct test_kv * kvs = generate_test_data(0, sizeof(size_t));
-                        
+                 
     for (i = 0; i < TEST_KV_NUMS; i++)
     {
-        bool is_update;
+        bool is_update, is_maintable = true;
         struct mehcached_item * item;
         const uint8_t* key = kvs[i].key;
+        size_t new_value = i + val_offset;
+        memcpy(kvs_group[i].value, &new_value, kvs_group[i].true_value_length);  // 更新value
         const uint8_t* value = kvs[i].value;
         size_t true_key_length = kvs[i].true_key_length;
         size_t true_value_length = kvs[i].true_value_length;
+        size_t item_offset;
         uint64_t key_hash = hash(key, true_key_length);
     
         item = midd_mehcached_set_warpper(0, main_table, key_hash,\
                                          key, true_key_length, \
-                                         value, true_value_length, 0, false, &is_update);
+                                         value, true_value_length, 0, true, &is_update, &is_maintable, NULL);
 
-        Assert(is_update == false);
+        // Assert(is_update == false);
 
         if (item == NULL)
         {
@@ -306,7 +310,7 @@ test_set()
                                     true_key_length, 
                                     kvs[i].value,
                                     true_value_length, 
-                                    0, false,
+                                    0, true,
                                     true, 
                                     &req_callback_ptr[nid],
                                     nid,
@@ -338,13 +342,18 @@ test_set()
         }
 
         INFO_LOG("key hash [%lx] set to all replica node success!", key_hash);
+
+        if (is_maintable)
+            item_offset = get_offset_by_item(main_table, item);
+        else
+            item_offset = get_offset_by_item(log_table, item);
  
         // 只写直接下游节点
         // 还需要返回远端 value 的虚拟地址， 用来求偏移量
-        makeup_update_request(item, get_offset_by_item(main_table, item),\
+        makeup_update_request(item, item_offset,\
                              (uint8_t*)item_get_value_addr(item), \
                              MEHCACHED_VALUE_LENGTH(item->kv_length_vec));
-        
+ 
         INFO_LOG("key hash [%lx] notices downstream replica node!", key_hash);
     }
 
@@ -356,36 +365,6 @@ test_set()
     // 主线程等待1s，让输出更清晰一点
     sleep(1);
     test_get_consistent(kvs);
-}
-
-void
-test_update()
-{
-    size_t i;
-    for (i = 0; i < MEHCACHED_ITEMS_PER_BUCKET; i++)
-    {
-        size_t key = i;
-        size_t value = 100 + i;
-        uint64_t key_hash = hash((const uint8_t *)&key, sizeof(key));
-        bool is_update;
-        struct mehcached_item * item;
-        //INFO_LOG("set key = %zu, value = %zu, key_hash = %lx", key, value, key_hash);
-
-        // update 操作
-        item = midd_mehcached_set_warpper(0, main_table, key_hash, (const uint8_t *)&key, sizeof(key), \
-                            (const uint8_t *)&value, sizeof(value), 0, false, &is_update);
-
-        Assert(is_update == false);
-
-        if (item == NULL)
-        {
-            ERROR_LOG("Main node set fail! keyhash is %lx", key_hash);
-            exit(0);
-        }
-    }
-
-    mehcached_print_stats(main_table);
-    mehcached_print_stats(log_table);
 }
 
 int main()
@@ -492,7 +471,10 @@ int main()
 		INFO_LOG("---------------------------MAIN node init finished!------------------------------");
         
         // 主节点启动测试程序
-        test_set();
+        struct test_kv * kvs = generate_test_data(0, sizeof(size_t));
+        test_set(kvs, 0);
+        test_set(kvs, 100);
+        test_set(kvs, 1000);
     }
 
 	if (IS_MIRROR(server_instance->server_type))

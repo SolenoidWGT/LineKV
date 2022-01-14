@@ -34,6 +34,13 @@ static bool table_is_inited = false;
 struct mehcached_table table_o;
 static bool check_version_is_same(struct mehcached_item *item, size_t value_length, size_t key_length);
 static bool is_main_table_latest(struct mehcached_item * main_item, uint64_t key_hash, const uint8_t* key, size_t key_length);
+static void get_item_all(struct mehcached_item *item, 
+                            uint64_t **main_key_v, 
+                            uint64_t **main_key_c, 
+                            uint64_t **main_value_h_v,
+                            uint64_t **main_value_t_v,
+                            uint64_t **main_value_count);
+static void synchronize_logtable_maintable(struct mehcached_item *main_item, struct mehcached_item *log_item);     
 
 bool 
 get_table_init_state()
@@ -466,7 +473,7 @@ mehcached_find_empty_or_oldest(const struct mehcached_table *table, struct mehca
 // 变长的 update 操作也会调用这个函数
 static
 void
-mehcached_set_item(struct mehcached_item *item, uint64_t key_hash, const uint8_t *key, uint32_t key_length, const uint8_t *value, uint32_t value_length, uint32_t expire_time)
+mehcached_set_item(struct mehcached_item *item, uint64_t key_hash, const uint8_t *key, uint32_t key_length, const uint8_t *value, uint32_t value_length, uint32_t expire_time, struct mehcached_item *main_item)
 {
     Assert(key_length <= MEHCACHED_KEY_MASK);
     Assert(value_length <= MEHCACHED_VALUE_MASK);
@@ -478,15 +485,16 @@ mehcached_set_item(struct mehcached_item *item, uint64_t key_hash, const uint8_t
     uint8_t* key_data;
     struct midd_key_tail* key_base;
 
-    struct midd_value_header* value_base;
+    struct midd_value_header* value_header;
     uint8_t* value_data;
     struct midd_value_tail* value_tail;
 
     key_data   = item->data;
     key_base   = (struct midd_key_tail*) item->data + KEY_HEADER_LEN;
-    value_base = (struct midd_value_header*)(item->data + MEHCACHED_ROUNDUP8(key_length));
+    value_header = (struct midd_value_header*)(item->data + MEHCACHED_ROUNDUP8(key_length));
     value_data = VALUE_START_ADDR(item->data, MEHCACHED_ROUNDUP8(key_length));
     value_tail = (struct midd_value_tail*) VALUE_TAIL_ADDR(item->data , MEHCACHED_ROUNDUP8(key_length), true_value_len);
+    dump_value_by_addr( (const uint8_t *)value_header, value_length);
 
     // MICA 更新自己的 item 的头部
     item->kv_length_vec = MEHCACHED_KV_LENGTH_VEC(key_length, value_length);
@@ -506,23 +514,31 @@ mehcached_set_item(struct mehcached_item *item, uint64_t key_hash, const uint8_t
     else
         mehcached_memcpy8(value_data, value, true_value_len);
 
-    // set 操作，初始化 version 为 1
-    key_base->version = 1;
-    key_base->key_count = 1;
-
-    // 更新 value 的头部
-    value_base->version = 1;
-    value_base->value_count = 1;
-
-    if (IS_REPLICA(server_instance->server_type))
+    if (main_item != NULL)
     {
-        value_tail->version = (uint64_t) -1;
-        value_tail->dirty = true;
+        synchronize_logtable_maintable(main_item, item);
+        value_tail->dirty       = false;
     }
     else
     {
-        value_tail->version = 1;
-        value_tail->dirty = false;
+        // set 操作，初始化 version 为 1
+        key_base->version = 1;
+        key_base->key_count = 1;
+
+        // 更新 value 的头部
+        value_header->version = 1;
+        value_header->value_count = 1;  
+
+        if (IS_REPLICA(server_instance->server_type))
+        {
+            value_tail->version = (uint64_t) -1;
+            value_tail->dirty = true;
+        }
+        else
+        {
+            value_tail->version = 1;
+            value_tail->dirty = false;
+        }
     }
 
     // printf("key_header length is %lu\n", sizeof(struct midd_key_tail));
@@ -530,20 +546,23 @@ mehcached_set_item(struct mehcached_item *item, uint64_t key_hash, const uint8_t
     // printf("key length is %lu\n",   true_key_len);
     // printf("value length is %lu\n", true_value_len);
     // HexDump((char*)key_data, (int) (key_length + value_length), (size_t)key_base);
+    dump_value_by_addr((const uint8_t *)value_header, value_length);
     INFO_LOG("SET: keyhash \"%lx\" value addr is [%p]", key_hash, value_data);
 }
 
 // 定长 update 操作会调用这个函数
 static
 void
-mehcached_set_item_value(struct mehcached_item *item, const uint8_t *value, uint32_t value_length, uint32_t expire_time)
+mehcached_set_item_value(struct mehcached_item *item, const uint8_t *value, uint32_t value_length, uint32_t expire_time, struct mehcached_item *main_item)
 {
     // 更新 value 的长度
-    size_t new_true_value_len = value_length - VALUE_HEADER_LEN - VALUE_TAIL_LEN;
     uint32_t key_length = MEHCACHED_KEY_LENGTH(item->kv_length_vec);
+    size_t new_true_value_len = value_length - VALUE_HEADER_LEN - VALUE_TAIL_LEN;
+    size_t true_key_len = GET_TRUE_KEY_LEN(key_length);
+    
 
-    struct midd_key_tail  * key_base;
-    struct midd_value_header* value_base;
+    struct midd_key_tail  * key_tail;
+    struct midd_value_header* value_header;
     struct midd_value_tail* value_tail;
     uint8_t* value_data;
 
@@ -552,34 +571,42 @@ mehcached_set_item_value(struct mehcached_item *item, const uint8_t *value, uint
     Assert(value_length <= MEHCACHED_VALUE_MASK);
 
     // uint8_t* base = item->data;                          
-    key_base   = (struct midd_key_tail*)(item->data + KEY_HEADER_LEN);
-    value_base = (struct midd_value_header*)(item->data + MEHCACHED_ROUNDUP8(key_length));
+    key_tail   = (struct midd_key_tail*)(item->data + true_key_len);
+    value_header = (struct midd_value_header*)(item->data + MEHCACHED_ROUNDUP8(key_length));
     value_data = VALUE_START_ADDR(item->data, MEHCACHED_ROUNDUP8(key_length));
     value_tail = (struct midd_value_tail*) VALUE_TAIL_ADDR(item->data , MEHCACHED_ROUNDUP8(key_length), new_true_value_len);
+    dump_value_by_addr( (const uint8_t *)value_header, value_length);
 
-    key_base->version++;
-    key_base->key_count++;   
-
-    if (!IS_REPLICA(server_instance->server_type))
+    if (main_item != NULL)
     {
-        // 更新本地hash表的value和下游节点的value
-        value_base->version ++;
-        value_base->value_count ++;
-        mehcached_memcpy8(value_data, value, new_true_value_len);
-        value_tail->version ++;
-        value_tail->dirty = false;
+        synchronize_logtable_maintable(main_item, item);
+        value_tail->dirty           = false;
     }
     else
     {
-        // 如果是副本节点调用该函数，且不是由回调函数调用的，则报错
-        if ((void*)value != (void*)0x1)
+        key_tail->version++;
+        key_tail->key_count++;   
+        if (!IS_REPLICA(server_instance->server_type))
         {
-            ERROR_LOG("mehcached_set_item_value do set, exit!");
-            exit(-1);
+            // 更新本地hash表的value和下游节点的value
+            value_header->version ++;
+            value_header->value_count ++;
+            mehcached_memcpy8(value_data, value, new_true_value_len);
+            value_tail->version ++;
+            value_tail->dirty = false;
         }
-
-        // 副本节点什么都不干，因为我们采用双边操作进行卸载
+        else
+        {
+            // 如果是副本节点调用该函数，且不是由回调函数调用的，则报错
+            if ((void*)value != (void*)0x1)
+            {
+                ERROR_LOG("mehcached_set_item_value do set, exit!");
+                exit(-1);
+            }
+            // 副本节点什么都不干，因为我们采用双边操作进行卸载
+        }
     }
+    dump_value_by_addr( (const uint8_t *)value_header, value_length);
     INFO_LOG("FIX length UPDTE node [%d]!", server_instance->server_id);
 }
 
@@ -1082,7 +1109,7 @@ mehcached_test(uint8_t current_alloc_id MEHCACHED_UNUSED, struct mehcached_table
 struct mehcached_item *
 mehcached_set(uint8_t current_alloc_id, struct mehcached_table *table, uint64_t key_hash,\
                 const uint8_t *key, size_t key_length, const uint8_t *value, size_t value_length,\
-                uint32_t expire_time, bool overwrite, bool *is_update)
+                uint32_t expire_time, bool overwrite, bool *is_update, bool* is_maintable, struct mehcached_item * main_item)
 {
     Assert(key_length <= MEHCACHED_MAX_KEY_LENGTH);
     Assert(value_length <= MEHCACHED_MAX_VALUE_LENGTH);
@@ -1153,7 +1180,7 @@ mehcached_set(uint8_t current_alloc_id, struct mehcached_table *table, uint64_t 
     }
 
     uint32_t new_item_size = (uint32_t)(sizeof(struct mehcached_item) + MEHCACHED_ROUNDUP8(key_length) + MEHCACHED_ROUNDUP8(value_length));
-    uint64_t item_offset;
+    uint64_t item_offset = (uint64_t) -1;
 
 #ifdef MEHCACHED_ALLOC_POOL
     // we have to lock the pool because is_valid check must be correct in the overwrite mode;
@@ -1191,18 +1218,25 @@ mehcached_set(uint8_t current_alloc_id, struct mehcached_table *table, uint64_t 
                     {
                         if (is_main_table_latest(item, key_hash, key, key_length))
                         {
+                            struct mehcached_item *log_item;
                             INFO_LOG("**Main table has latest data, write to log table!**");
                             mehcached_unlock_bucket(table, bucket);
-                            return mehcached_set(current_alloc_id, log_table, key_hash, key, \
+                            log_item = mehcached_set(current_alloc_id, log_table, key_hash, key, \
                                                      key_length, value, value_length, expire_time, \
-                                                     overwrite, is_update);
+                                                     overwrite, is_update, is_maintable, item);
+                            // 将 maintable 的远端地址赋值给 logtbale 的item，logtable 和 maintable 相同key
+                            // 的区别应该就是 remote addr 不一致
+                            log_item->mapping_id = item->mapping_id;
+                            log_item->remote_value_addr = item->remote_value_addr;
+                            *is_maintable = false;
+                            return log_item;
                         }
                         // 如果 logtable 中的数据是新的，写 maintable，后面接正常的 mica 逻辑即可
                     }
 
                     // key 已经存在，直接覆盖 value
                     MEHCACHED_STAT_INC(table, set_inplace);
-                    mehcached_set_item_value(item, value, (uint32_t)value_length, expire_time);
+                    mehcached_set_item_value(item, value, (uint32_t)value_length, expire_time, main_item);
 
 #ifdef MEHCACHED_ALLOC_POOL
                     mehcached_pool_unlock(&table->alloc[current_alloc_id]);
@@ -1213,6 +1247,8 @@ mehcached_set(uint8_t current_alloc_id, struct mehcached_table *table, uint64_t 
             }
         }
     }
+
+    *is_maintable = true;
 
 #ifdef MEHCACHED_ALLOC_POOL
     uint64_t new_item_offset = mehcached_pool_allocate(&table->alloc[current_alloc_id], new_item_size);
@@ -1250,7 +1286,7 @@ mehcached_set(uint8_t current_alloc_id, struct mehcached_table *table, uint64_t 
 
     MEHCACHED_STAT_INC(table, set_new);
 
-    mehcached_set_item(new_item, key_hash, key, (uint32_t)key_length, value, (uint32_t)value_length, expire_time);
+    mehcached_set_item(new_item, key_hash, key, (uint32_t)key_length, value, (uint32_t)value_length, expire_time, main_item);
 #ifdef MEHCACHED_ALLOC_POOL
     // unlocking is delayed until we finish writing data at the new location;
     // otherwise, the new location may be invalidated (in a very rare case)
@@ -1661,13 +1697,13 @@ mehcached_table_free(struct mehcached_table *table)
 struct mehcached_item *
 midd_mehcached_set_warpper(uint8_t current_alloc_id, struct mehcached_table *table, uint64_t key_hash,\
                 const uint8_t *key, size_t key_length, const uint8_t *value, size_t value_length,\
-                uint32_t expire_time, bool overwrite, bool *is_update)
+                uint32_t expire_time, bool overwrite, bool *is_update, bool *is_maintable, struct mehcached_item * main_item)
 {
     return mehcached_set(current_alloc_id, table, key_hash, key, 
                             key_length + KEY_HEADER_LEN, 
                             value, 
                             VALUE_HEADER_LEN + value_length + VALUE_TAIL_LEN, 
-                            expire_time, overwrite, is_update);
+                            expire_time, overwrite, is_update, is_maintable, main_item);
 }
 
 bool
@@ -1778,9 +1814,100 @@ check_version_is_same(struct mehcached_item *item, size_t value_length, size_t a
     return memcmp(&value_base->version, &value_tail->version, sizeof(uint64_t)) == 0;
 }
 
+static void
+synchronize_logtable_maintable(struct mehcached_item *main_item, struct mehcached_item *log_item)
+{
+    Assert(IS_MAIN(server_instance->server_type) || IS_MIRROR(server_instance->server_type));
+    uint64_t * main_key_v, * main_key_c, * main_value_h_v, * main_value_t_v, * main_value_count;
+    uint64_t * log_key_v, * log_key_c, * log_value_h_v, * log_value_t_v, * log_value_count;
 
-static uint64_t
-get_item_tail_version(struct mehcached_item * item)
+    get_item_all(main_item, &main_key_v, &main_key_c, &main_value_h_v,  &main_value_t_v, &main_value_count);
+    get_item_all(log_item, &log_key_v, &log_key_c, &log_value_h_v,  &log_value_t_v, &log_value_count);
+
+    // 更新 logtable 的时候需要同时更新 miantable, 
+    // logtable 和 maintable 只有 value 不一致，但是元数据必须一致
+    (*main_key_v) ++;
+    (*main_key_c) ++;
+    (*main_value_h_v) ++;
+    (*main_value_t_v)++;
+    (*main_value_count)++;
+
+    // 同步 logtable
+    *log_key_v          = *main_key_v;
+    *log_key_c          = *main_key_c;
+    *log_value_h_v      = *main_value_h_v;
+    *log_value_count    = *main_value_count;
+    *log_value_t_v      = *main_value_t_v;
+}
+
+static void 
+get_item_all(struct mehcached_item *item, 
+            uint64_t **main_key_v, 
+            uint64_t **main_key_c, 
+            uint64_t **main_value_h_v,
+            uint64_t **main_value_t_v,
+            uint64_t **main_value_count)
+{
+    size_t true_key_len = GET_TRUE_KEY_LEN(MEHCACHED_KEY_LENGTH(item->kv_length_vec));
+    size_t value_length = MEHCACHED_VALUE_LENGTH(item->kv_length_vec);
+    size_t align_key_length = MEHCACHED_ROUNDUP8(MEHCACHED_KEY_LENGTH(item->kv_length_vec));
+    struct midd_key_tail * key_tail;
+    struct midd_value_header * value_header;
+    struct midd_value_tail   * value_tail;
+
+    key_tail = (struct midd_key_tail *)(item->data + true_key_len);
+    value_header = (struct midd_value_header *)(item->data + align_key_length);
+    value_tail = (struct midd_value_tail   *)((uint8_t*) value_header + value_length - VALUE_TAIL_LEN);
+
+    *main_key_v         = &key_tail->version;
+    *main_key_c         = &key_tail->key_count;
+    *main_value_h_v     = &value_header->version;
+    *main_value_t_v     = &value_tail->version;
+    *main_value_count   = &value_header->value_count;
+}
+
+static uint64_t*
+get_item_key_count(struct mehcached_item * item)
+{
+    size_t true_key_len = GET_TRUE_KEY_LEN(MEHCACHED_KEY_LENGTH(item->kv_length_vec));
+    struct midd_key_tail * key_base;
+
+    key_base = (struct midd_key_tail *)(item->data + true_key_len);
+    return &key_base->key_count;
+}
+
+static uint64_t*
+get_item_key_version(struct mehcached_item * item)
+{
+    size_t true_key_len = GET_TRUE_KEY_LEN(MEHCACHED_KEY_LENGTH(item->kv_length_vec));
+    struct midd_key_tail * key_base;
+
+    key_base = (struct midd_key_tail *)(item->data + true_key_len);
+    return &key_base->version;
+}
+
+static uint64_t*
+get_item_value_count(struct mehcached_item * item)
+{
+    size_t align_key_length = MEHCACHED_ROUNDUP8(MEHCACHED_KEY_LENGTH(item->kv_length_vec));
+    struct midd_value_header * value_base;
+
+    value_base = (struct midd_value_header *)(item->data + align_key_length);
+    return &value_base->value_count;
+}
+
+static uint64_t*
+get_item_value_header_version(struct mehcached_item * item)
+{
+    size_t align_key_length = MEHCACHED_ROUNDUP8(MEHCACHED_KEY_LENGTH(item->kv_length_vec));
+    struct midd_value_header * value_base;
+
+    value_base = (struct midd_value_header *)(item->data + align_key_length);
+    return &value_base->version;
+}
+
+static uint64_t*
+get_item_value_tail_version(struct mehcached_item * item)
 {
     size_t value_length = MEHCACHED_VALUE_LENGTH(item->kv_length_vec);
     size_t align_key_length = MEHCACHED_ROUNDUP8(MEHCACHED_KEY_LENGTH(item->kv_length_vec));
@@ -1789,7 +1916,7 @@ get_item_tail_version(struct mehcached_item * item)
 
     value_base = (struct midd_value_header *)(item->data + align_key_length);
     value_tail = (struct midd_value_tail   *)((uint8_t*) value_base + value_length - VALUE_TAIL_LEN);
-    return value_tail->version;
+    return &value_tail->version;
 }
 
 // 主节点上的 main_table 和 log_table 的偏移量是不确定的
@@ -1802,9 +1929,9 @@ is_main_table_latest(struct mehcached_item * main_item, uint64_t key_hash, const
 
     if (log_item != NULL)
     {
-        uint64_t log_version = get_item_tail_version(log_item);
-        uint64_t main_version = get_item_tail_version(main_item);
-        return log_version <= main_version;
+        uint64_t *log_version = get_item_value_tail_version(log_item);
+        uint64_t *main_version = get_item_value_tail_version(main_item);
+        return *log_version <= *main_version;
     }
     else
         return true;

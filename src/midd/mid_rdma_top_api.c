@@ -182,6 +182,7 @@ mica_set_remote(uint8_t current_alloc_id,  uint64_t key_hash, const uint8_t *key
 		total_length = sizeof(struct post_datagram) + sizeof(struct dhmp_mica_set_request) + key_length;
 	
 	base = malloc(total_length); 
+	// memset(base, 0 , total_length);
 	req_msg  = (struct post_datagram *) base;
 	req_data = (struct dhmp_mica_set_request *)((char *)base + sizeof(struct post_datagram));
 
@@ -197,14 +198,14 @@ mica_set_remote(uint8_t current_alloc_id,  uint64_t key_hash, const uint8_t *key
 	req_data->expire_time = expire_time;
 	req_data->key_hash = key_hash;
 	req_data->key_length = key_length;
-	req_data->value_length = value_length;
+	req_data->value_length = value_length;	// 这里的 value 长度是包含了value头部和尾部的长度
 	req_data->overwrite = overwrite;
 	req_data->is_update = is_update;
 	data_addr = (void*)req_data + offsetof(struct dhmp_mica_set_request, data);
 	memcpy(data_addr, key, key_length);		// copy key
 
 	if (target_id == MIRROR_NODE_ID)
-		memcpy(data_addr + key_length, value, GET_TRUE_VALUE_LEN(value_length));	// copy value, 注意这里拷贝不包含value的头部和尾部
+		memcpy(data_addr + key_length, value, GET_TRUE_VALUE_LEN(value_length));	// copy value, 注意这里拷贝不包含value的头部和尾部，所以需要远端节点自己进行元数据的更新
 
 	if (!dhmp_post_send_info(target_id, base, total_length, NULL))
 		return false;

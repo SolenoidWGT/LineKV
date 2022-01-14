@@ -347,7 +347,9 @@ struct test_kv
 	struct mehcached_item * item;	// 如果有
 };
 
+void dump_value_by_addr(const uint8_t * value, size_t value_length);
 // TODO : 新的mapping增加后的通知机制
 // TODO : logtable 的垃圾回收
 // TODO : 去掉 #define MICA_DEFAULT_VALUE_LEN (1024)
+// TODO : 边长 key 插入， header ,tail 元数据的迁移
 #endif

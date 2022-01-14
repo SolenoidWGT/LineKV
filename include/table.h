@@ -243,11 +243,11 @@ mehcached_calc_tag(uint64_t key_hash);
 
 static
 void
-mehcached_set_item(struct mehcached_item *item, uint64_t key_hash, const uint8_t *key, uint32_t key_length, const uint8_t *value, uint32_t value_length, uint32_t expire_time);
+mehcached_set_item(struct mehcached_item *item, uint64_t key_hash, const uint8_t *key, uint32_t key_length, const uint8_t *value, uint32_t value_length, uint32_t expire_time, struct mehcached_item *main_item);
 
 static
 void
-mehcached_set_item_value(struct mehcached_item *item, const uint8_t *value, uint32_t value_length, uint32_t expire_time);
+mehcached_set_item_value(struct mehcached_item *item, const uint8_t *value, uint32_t value_length, uint32_t expire_time, struct mehcached_item *main_item);
 
 static
 bool
@@ -284,8 +284,12 @@ struct mehcached_item *
 mehcached_set(uint8_t current_alloc_id, struct mehcached_table *table, uint64_t key_hash,
  const uint8_t *key, size_t key_length, const uint8_t *value, 
  size_t value_length, uint32_t expire_time, bool overwrite,
- bool* is_update);
+ bool* is_update, bool *is_maintable, struct mehcached_item * main_item);
 
+struct mehcached_item *
+midd_mehcached_set_warpper(uint8_t current_alloc_id, struct mehcached_table *table, uint64_t key_hash,\
+                const uint8_t *key, size_t key_length, const uint8_t *value, size_t value_length,\
+                uint32_t expire_time, bool overwrite, bool *is_update, bool *is_maintable, struct mehcached_item * main_item);
 static
 bool
 mehcached_delete(uint8_t current_alloc_id, struct mehcached_table *table, uint64_t key_hash, const uint8_t *key, size_t key_length);
@@ -362,5 +366,6 @@ void value_get_true_value(uint8_t*true_value, uint8_t* value, size_t value_lengt
 
 #define GET_TRUE_VALUE_ADDR(value) ( (uint8_t*)value +  VALUE_HEADER_LEN)
 #define GET_TRUE_VALUE_LEN(value_length) (value_length - VALUE_HEADER_LEN - VALUE_TAIL_LEN)
+#define GET_TRUE_KEY_LEN(key_length) (key_length - KEY_HEADER_LEN)
 MEHCACHED_END
 

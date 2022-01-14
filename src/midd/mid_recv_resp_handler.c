@@ -209,7 +209,7 @@ dhmp_mica_set_request_handler(struct post_datagram *req)
 	size_t resp_len = sizeof(struct dhmp_mica_set_response);
 	struct mehcached_item * item;
 	struct mehcached_table *table = &table_o;
-	bool is_update;
+	bool is_update, is_maintable = true;
 	struct dhmp_msg resp_msg;
 
 	void * key_addr;
@@ -249,9 +249,13 @@ dhmp_mica_set_request_handler(struct post_datagram *req)
 						req_info->value_length,
 						req_info->expire_time,
 						req_info->overwrite,
-						&is_update);
+						&is_update,
+						&is_maintable,
+						NULL);
 
-	Assert(is_update == req_info->is_update);
+	// Assert(is_update == req_info->is_update);
+	if (IS_REPLICA(server_instance->server_type))
+		Assert(is_maintable == true);
 
 	if (item != NULL)
 	{
