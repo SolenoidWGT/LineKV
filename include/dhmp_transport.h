@@ -145,10 +145,5 @@ extern int client_find_server_id();
 extern int find_next_node(int id);
 
 void dhmp_post_send_new(struct dhmp_transport* rdma_trans, struct dhmp_msg* msg_ptr);
-int dhmp_rdma_write_mica_warpper (struct dhmp_transport* rdma_trans,
-						struct mehcached_item * item,
-						struct ibv_mr* mr, 
-						size_t length,
-						uintptr_t remote_addr);
 #endif
 

@@ -1,3 +1,11 @@
+/*
+ * @Author: your name
+ * @Date: 2022-02-21 20:36:29
+ * @LastEditTime: 2022-02-22 23:14:04
+ * @LastEditors: your name
+ * @Description: 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+ * @FilePath: /star_midd/include/shm.h
+ */
 // Copyright 2014 Carnegie Mellon University
 //
 // Licensed under the Apache License, Version 2.0 (the "License");
@@ -15,7 +23,6 @@
 #pragma once
 
 #include "common.h"
-
 
 MEHCACHED_BEGIN
 
@@ -65,17 +72,8 @@ mehcached_shm_malloc_striped(size_t size);
 void
 mehcached_shm_free_striped(void *ptr);
 
-void
-mehcached_shm_lock();
 
-void
-mehcached_shm_unlock();
-
-void
-mehcached_shm_lock();
-
-void
-mehcached_shm_unlock();
-
+void mehcached_shm_lock();
+void mehcached_shm_unlock();
 MEHCACHED_END
 

@@ -546,7 +546,7 @@ static int on_cm_established(struct rdma_cm_event* event, struct dhmp_transport*
 	// 	INFO_LOG("MICA server on_cm_established get client id is [%d], success!", rdma_trans->node_id);
 	// }
 	// else
-	// 	INFO_LOG("MICA client on_cm_established success with server [%d]!", rdma_trans->node_id);
+	INFO_LOG("MICA on_cm_established success with server [%d]!", rdma_trans->node_id);
 
 	return retval;
 }

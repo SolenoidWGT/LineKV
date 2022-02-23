@@ -176,10 +176,10 @@ mica_set_remote(uint8_t current_alloc_id,  uint64_t key_hash, const uint8_t *key
 	// HexDump((char*)key, (int) (key_length + value_length), (size_t)key);
 
 	// 构造报文
-	if (target_id == MIRROR_NODE_ID)
+	// if (target_id == MIRROR_NODE_ID)
 		total_length = sizeof(struct post_datagram) + sizeof(struct dhmp_mica_set_request) + key_length + value_length;
-	else
-		total_length = sizeof(struct post_datagram) + sizeof(struct dhmp_mica_set_request) + key_length;
+	// else
+		// total_length = sizeof(struct post_datagram) + sizeof(struct dhmp_mica_set_request) + key_length;
 	
 	base = malloc(total_length); 
 	// memset(base, 0 , total_length);
@@ -204,8 +204,8 @@ mica_set_remote(uint8_t current_alloc_id,  uint64_t key_hash, const uint8_t *key
 	data_addr = (void*)req_data + offsetof(struct dhmp_mica_set_request, data);
 	memcpy(data_addr, key, key_length);		// copy key
 
-	if (target_id == MIRROR_NODE_ID)
-		memcpy(data_addr + key_length, value, GET_TRUE_VALUE_LEN(value_length));	// copy value, 注意这里拷贝不包含value的头部和尾部，所以需要远端节点自己进行元数据的更新
+	// if (target_id == MIRROR_NODE_ID)
+	memcpy(data_addr + key_length, value, value_length);	// copy value, 注意这里拷贝不包含value的头部和尾部，所以需要远端节点自己进行元数据的更新
 
 	if (!dhmp_post_send_info(target_id, base, total_length, NULL))
 		return false;
@@ -232,24 +232,6 @@ mica_set_remote(uint8_t current_alloc_id,  uint64_t key_hash, const uint8_t *key
 	}
 
 	return re_mapping_id;
-}
-
-size_t
-mica_set_remote_warpper(uint8_t current_alloc_id,  
-				const uint8_t* no_header_key, uint64_t key_hash,size_t true_key_length, 
-				const uint8_t* no_header_value, size_t true_value_length,
-                uint32_t expire_time, bool overwrite, 
-				bool is_async, 
-				struct set_requset_pack * req_callback_ptr,
-				size_t target_id,
-				bool is_update)
-{
-	return mica_set_remote(current_alloc_id, key_hash, 
-				no_header_key, 
-				true_key_length + KEY_HEADER_LEN, 
-				no_header_value, 
-				VALUE_HEADER_LEN + true_value_length  + VALUE_TAIL_LEN,
-				expire_time, overwrite, is_async, req_callback_ptr, target_id,is_update);
 }
 
 static struct dhmp_mica_get_response*
@@ -308,20 +290,6 @@ mica_get_remote(uint8_t current_alloc_id,  uint64_t key_hash, const uint8_t *key
 	}
 
 	return NULL;
-}
-
-struct dhmp_mica_get_response*
-mica_get_remote_warpper(uint8_t current_alloc_id,  uint64_t key_hash, const uint8_t *key, 
-				size_t key_length, 
-				bool is_async, 
-				struct set_requset_pack * req_callback_ptr,
-				size_t target_id)
-{
-	return mica_get_remote(current_alloc_id,  key_hash, key, 
-				key_length + KEY_HEADER_LEN, 
-				is_async, 
-				req_callback_ptr,
-				target_id);
 }
 
 void 
@@ -408,4 +376,37 @@ dhmp_post_send_info(size_t target_id, void * data, size_t length, struct dhmp_tr
 	dhmp_post_send(rdma_trans, &msg);
 out:
 	return true;
+}
+
+
+size_t
+mica_set_remote_warpper(uint8_t current_alloc_id,  
+				const uint8_t* no_header_key, uint64_t key_hash,size_t true_key_length, 
+				const uint8_t* no_header_value, size_t true_value_length,
+                uint32_t expire_time, bool overwrite, 
+				bool is_async, 
+				struct set_requset_pack * req_callback_ptr,
+				size_t target_id,
+				bool is_update)
+{
+	return mica_set_remote(current_alloc_id, key_hash, 
+				no_header_key, 
+				true_key_length, 
+				no_header_value, 
+				true_value_length,
+				expire_time, overwrite, is_async, req_callback_ptr, target_id,is_update);
+}
+
+struct dhmp_mica_get_response*
+mica_get_remote_warpper(uint8_t current_alloc_id,  uint64_t key_hash, const uint8_t *key, 
+				size_t key_length, 
+				bool is_async, 
+				struct set_requset_pack * req_callback_ptr,
+				size_t target_id)
+{
+	return mica_get_remote(current_alloc_id,  key_hash, key, 
+				key_length, 
+				is_async, 
+				req_callback_ptr,
+				target_id);
 }

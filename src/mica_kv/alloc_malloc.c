@@ -16,6 +16,7 @@
 
 #include "alloc_malloc.h"
 #include "table.h"
+#include "dhmp_log.h"
 
 MEHCACHED_BEGIN
 

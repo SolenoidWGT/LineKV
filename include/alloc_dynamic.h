@@ -56,36 +56,43 @@ struct mehcached_dynamic
     size_t  mapping_id;
 };
 
-static
-void
-mehcached_dynamic_init(struct mehcached_dynamic *alloc, uint64_t size, bool concurrent_alloc_read, bool concurrent_alloc_write, size_t numa_node);
+// static
+// void
+// mehcached_dynamic_init(struct mehcached_dynamic *alloc, uint64_t size, bool concurrent_alloc_read, bool concurrent_alloc_write, size_t numa_node);
 
-static
-void
-mehcached_dynamic_free(struct mehcached_dynamic *alloc);
+// static
+// void
+// mehcached_dynamic_free(struct mehcached_dynamic *alloc);
 
-static
-void
-mehcached_dynamic_reset(struct mehcached_dynamic *alloc);
+// static
+// void
+// mehcached_dynamic_reset(struct mehcached_dynamic *alloc);
 
-static
-void
-mehcached_dynamic_lock(struct mehcached_dynamic *alloc);
+// static
+// void
+// mehcached_dynamic_lock(struct mehcached_dynamic *alloc);
 
-static
-void
-mehcached_dynamic_unlock(struct mehcached_dynamic *alloc);
+// static
+// void
+// mehcached_dynamic_unlock(struct mehcached_dynamic *alloc);
 
-struct mehcached_alloc_item *
-mehcached_dynamic_item(const struct mehcached_dynamic *alloc, uint64_t dynamic_offset);
+// struct mehcached_alloc_item *
+// mehcached_dynamic_item(const struct mehcached_dynamic *alloc, uint64_t dynamic_offset);
 
-static
-uint64_t
-mehcached_dynamic_allocate(struct mehcached_dynamic *alloc, uint32_t item_size);
+// static
+// uint64_t
+// mehcached_dynamic_allocate(struct mehcached_dynamic *alloc, uint32_t item_size);
 
-static
-void
-mehcached_dynamic_deallocate(struct mehcached_dynamic *alloc, uint64_t dynamic_offset);
+// static
+// void
+// mehcached_dynamic_deallocate(struct mehcached_dynamic *alloc, uint64_t dynamic_offset);
+
+#define MEHCACHED_DYNAMIC_FREE (0UL)
+#define MEHCACHED_DYNAMIC_OCCUPIED (1UL)
+
+#define MEHCACHED_DYNAMIC_TAG_SIZE(vec) ((vec) & ((1UL << 63UL) - 1UL))
+#define MEHCACHED_DYNAMIC_TAG_STATUS(vec) ((vec) >> 63UL)
+#define MEHCACHED_DYNAMIC_TAG_VEC(size, status) ((size) | (status) << 63UL)
 
 MEHCACHED_END
 

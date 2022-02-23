@@ -19,85 +19,85 @@ static struct post_datagram *
 dhmp_mica_get_cli_MR_request_handler(struct dhmp_transport* rdma_trans,
 									struct post_datagram *req)
 {
-	struct post_datagram *resp;
-	struct dhmp_mica_get_cli_MR_request  * req_info;
-	struct dhmp_mica_get_cli_MR_response * resp_req;
-	struct dhmp_device * dev = dhmp_get_dev_from_server();
-	size_t resp_len = sizeof(struct dhmp_mica_get_cli_MR_response);
+	// struct post_datagram *resp;
+	// struct dhmp_mica_get_cli_MR_request  * req_info;
+	// struct dhmp_mica_get_cli_MR_response * resp_req;
+	// struct dhmp_device * dev = dhmp_get_dev_from_server();
+	// size_t resp_len = sizeof(struct dhmp_mica_get_cli_MR_response);
 
-	// 该节点的 mapping 信息和 mr 信息
-	resp = (struct post_datagram *) malloc(DATAGRAM_ALL_LEN(resp_len));
-	INFO_LOG("resp length is %u", DATAGRAM_ALL_LEN(resp_len));
-	memset(resp, 0, DATAGRAM_ALL_LEN(resp_len));
+	// // 该节点的 mapping 信息和 mr 信息
+	// resp = (struct post_datagram *) malloc(DATAGRAM_ALL_LEN(resp_len));
+	// INFO_LOG("resp length is %u", DATAGRAM_ALL_LEN(resp_len));
+	// memset(resp, 0, DATAGRAM_ALL_LEN(resp_len));
 
-	req_info  = (struct dhmp_mica_get_cli_MR_request *) DATA_ADDR(req, 0);
-	resp_req  = (struct dhmp_mica_get_cli_MR_response *) DATA_ADDR(resp, 0);
+	// req_info  = (struct dhmp_mica_get_cli_MR_request *) DATA_ADDR(req, 0);
+	// resp_req  = (struct dhmp_mica_get_cli_MR_response *) DATA_ADDR(resp, 0);
 
-	// 填充自身新产生的信息
-	resp_req->resp_all_mapping.node_id = server_instance->server_id;
-	resp_req->resp_all_mapping.used_mapping_nums = get_mapping_nums();
-	resp_req->resp_all_mapping.first_inited = false;
+	// // 填充自身新产生的信息
+	// resp_req->resp_all_mapping.node_id = server_instance->server_id;
+	// resp_req->resp_all_mapping.used_mapping_nums = get_mapping_nums();
+	// resp_req->resp_all_mapping.first_inited = false;
 
-	if (false == get_table_init_state())
-	{
-		mehcached_shm_lock();
-		if (false == get_table_init_state() )
-		{
-			// 进行节点的 k-v 初始化
-			struct mehcached_table *table = &table_o;
-			size_t numa_nodes[] = {(size_t)-1};
+	// if (false == get_table_init_state())
+	// {
+	// 	mehcached_shm_lock();
+	// 	if (false == get_table_init_state() )
+	// 	{
+	// 		// 进行节点的 k-v 初始化
+	// 		struct mehcached_table *table = &table_o;
+	// 		size_t numa_nodes[] = {(size_t)-1};
 
-			// 初始化 hash table 并注册内存
-			mehcached_table_init(table, 1, 1, 256, false, false, false, \
-								numa_nodes[0], numa_nodes, MEHCACHED_MTH_THRESHOLD_FIFO);
-			Assert(table);
+	// 		// 初始化 hash table 并注册内存
+	// 		mehcached_table_init(table, 1, 1, 256, false, false, false, \
+	// 							numa_nodes[0], numa_nodes, MEHCACHED_MTH_THRESHOLD_FIFO);
+	// 		Assert(table);
 
-			resp_req->resp_all_mapping.first_inited = true;
-			INFO_LOG("replica node[%d] first init finished!, caller is node[%d]", \
-						server_instance->server_id, req->node_id);
+	// 		resp_req->resp_all_mapping.first_inited = true;
+	// 		INFO_LOG("replica node[%d] first init finished!, caller is node[%d]", \
+	// 					server_instance->server_id, req->node_id);
 			
-			set_table_init_state(true);
-		}
-		mehcached_shm_unlock();
-	}
+	// 		set_table_init_state(true);
+	// 	}
+	// 	mehcached_shm_unlock();
+	// }
 
-	copy_mapping_info( (void*) resp_req->resp_all_mapping.mehcached_shm_pages);
-	copy_mapping_mrs_info(&resp_req->resp_all_mapping.mrs[0]);
+	// copy_mapping_info( (void*) resp_req->resp_all_mapping.mehcached_shm_pages);
+	// copy_mapping_mrs_info(&resp_req->resp_all_mapping.mrs[0]);
 
-	dump_mr(&resp_req->resp_all_mapping.mrs[1]);
+	// dump_mr(&resp_req->resp_all_mapping.mrs[1]);
 
-	resp->req_ptr  = req->req_ptr;		    		// 原样返回对方用于消息完成时的报文的判别
-	resp->resp_ptr = resp;							// 自身用于消息完成时报文的判别
-	resp->node_id  = server_instance->server_id;	// 向对端发送自己的 node_id 用于身份辨识
-	resp->info_type = MICA_GET_CLIMR_RESPONSE;
-	resp->info_length = resp_len;
-	resp->done_flag = false;						// request_handler 不关心 done_flag（不需要阻塞）
+	// resp->req_ptr  = req->req_ptr;		    		// 原样返回对方用于消息完成时的报文的判别
+	// resp->resp_ptr = resp;							// 自身用于消息完成时报文的判别
+	// resp->node_id  = server_instance->server_id;	// 向对端发送自己的 node_id 用于身份辨识
+	// resp->info_type = MICA_GET_CLIMR_RESPONSE;
+	// resp->info_length = resp_len;
+	// resp->done_flag = false;						// request_handler 不关心 done_flag（不需要阻塞）
 
-	return resp;
+	// return resp;
 }
 
 static void 
 dhmp_mica_get_cli_MR_response_handler(struct dhmp_transport* rdma_trans,
 													struct dhmp_msg* msg)
 {
-	struct post_datagram *resp = (struct post_datagram *) (msg->data); 
-	struct post_datagram *req = (struct post_datagram *) (resp->req_ptr); 
+	// struct post_datagram *resp = (struct post_datagram *) (msg->data); 
+	// struct post_datagram *req = (struct post_datagram *) (resp->req_ptr); 
 
-	struct dhmp_mica_get_cli_MR_response *resp_info = \
-			(struct dhmp_mica_get_cli_MR_response *) DATA_ADDR(resp, 0);
+	// struct dhmp_mica_get_cli_MR_response *resp_info = \
+	// 		(struct dhmp_mica_get_cli_MR_response *) DATA_ADDR(resp, 0);
 
-	struct dhmp_mica_get_cli_MR_request *req_info = \
-		(struct dhmp_mica_get_cli_MR_request *) DATA_ADDR(req, 0);
+	// struct dhmp_mica_get_cli_MR_request *req_info = \
+	// 	(struct dhmp_mica_get_cli_MR_request *) DATA_ADDR(req, 0);
 
-	memcpy(req_info->info_revoke_ptr, &resp_info->resp_all_mapping, sizeof(struct replica_mappings));
+	// memcpy(req_info->info_revoke_ptr, &resp_info->resp_all_mapping, sizeof(struct replica_mappings));
 
-	INFO_LOG("Node [%d] get mr info from node[%d]!, req_info->info_revoke_ptr is [%p]",\
-		 server_instance->server_id, resp->node_id, req_info->info_revoke_ptr);
+	// INFO_LOG("Node [%d] get mr info from node[%d]!, req_info->info_revoke_ptr is [%p]",\
+	// 	 server_instance->server_id, resp->node_id, req_info->info_revoke_ptr);
 
-	dump_mr(&req_info->info_revoke_ptr->mrs[0]);
-	dump_mr(&req_info->info_revoke_ptr->mrs[1]);
+	// dump_mr(&req_info->info_revoke_ptr->mrs[0]);
+	// dump_mr(&req_info->info_revoke_ptr->mrs[1]);
 
-	resp->req_ptr->done_flag = true;
+	// resp->req_ptr->done_flag = true;
 }
 
 static struct post_datagram * 
@@ -113,18 +113,16 @@ dhmp_ack_request_handler(struct dhmp_transport* rdma_trans,
 	switch (req_data->ack_type)
 	{
 	case MICA_INIT_ADDR_ACK:
-		mehcached_shm_lock();
-		if (get_table_init_state() == false || replica_is_ready == false)
+		if (/*get_table_init_state() == false ||  */ replica_is_ready == false)
 			resp_ack_state = MICA_ACK_INIT_ADDR_NOT_OK;
 		else
 			resp_ack_state = MICA_ACK_INIT_ADDR_OK;
 
 		if (IS_REPLICA(server_instance->server_type) &&
-			!IS_TAIL(server_instance->server_type) && 
-			nic_thread_ready == false)
+			!IS_TAIL(server_instance->server_type) /* && 
+			nic_thread_ready == false */ )
 			resp_ack_state = MICA_ACK_INIT_ADDR_NOT_OK;
 
-		mehcached_shm_unlock();
 		break;
 	default:
 		break;
@@ -207,32 +205,20 @@ dhmp_mica_set_request_handler(struct post_datagram *req)
 	struct dhmp_mica_set_request  * req_info;
 	struct dhmp_mica_set_response * set_result;
 	size_t resp_len = sizeof(struct dhmp_mica_set_response);
-	struct mehcached_item * item;
+	// struct mehcached_item * item;
+	bool re;
 	struct mehcached_table *table = &table_o;
-	bool is_update, is_maintable = true;
 	struct dhmp_msg resp_msg;
 
 	void * key_addr;
 	void * value_addr;
 
-	if (IS_REPLICA(server_instance->server_type))
-		Assert(replica_is_ready == true);
+	Assert(!IS_REPLICA(server_instance->server_type)); // 在星型结构中没有副本节点这个概念
+	Assert(!IS_MAIN(server_instance->server_type));
 
 	req_info  = (struct dhmp_mica_set_request *) DATA_ADDR(req, 0);
 	key_addr = (void*)req_info->data;	
-
-	Assert(!IS_MAIN(server_instance->server_type));
-	// 不管是 insert 还是 update 副本节点都需要等待上游网卡节点传送数据
-	if (IS_REPLICA(server_instance->server_type))
-		value_addr = (void*) 0x1;
-	else
-		value_addr = (void*)key_addr + req_info->key_length;
-
-	// 该节点的 mapping 信息和 mr 信息
-	// 回传key（为了上游节点确定item，仅靠key_hash是不够的）
-	if (!IS_HEAD(server_instance->server_type) &&
-		!IS_MIRROR(server_instance->server_type))
-		resp_len += req_info->key_length;	
+	value_addr = (void*)key_addr + req_info->key_length;
 
 	resp = (struct post_datagram *) malloc(DATAGRAM_ALL_LEN(resp_len));
 	memset(resp, 0, DATAGRAM_ALL_LEN(resp_len));
@@ -240,7 +226,16 @@ dhmp_mica_set_request_handler(struct post_datagram *req)
 
 	// 注意！，此处不需要调用 warpper 函数
 	// 因为传递过来的 value 地址已经添加好头部和尾部了，长度也已经加上了头部和尾部的长度。
-	item = mehcached_set(req_info->current_alloc_id,
+	// mehcached_set(uint8_t current_alloc_id, \
+					struct mehcached_table *table, \
+					uint64_t key_hash, \
+					const uint8_t *key,\
+					size_t key_length, \
+					const uint8_t *value, \
+					size_t value_length, \
+					uint32_t expire_time, \
+					bool overwrite);
+	re = mehcached_set(req_info->current_alloc_id,
 						table,
 						req_info->key_hash,
 						key_addr,
@@ -248,19 +243,12 @@ dhmp_mica_set_request_handler(struct post_datagram *req)
 						value_addr,
 						req_info->value_length,
 						req_info->expire_time,
-						req_info->overwrite,
-						&is_update,
-						&is_maintable,
-						NULL);
+						req_info->overwrite);
 
-	// Assert(is_update == req_info->is_update);
-	if (IS_REPLICA(server_instance->server_type))
-		Assert(is_maintable == true);
-
-	if (item != NULL)
+	if (re)
 	{
-		set_result->value_addr = (uintptr_t ) item_get_value_addr(item);
-		set_result->out_mapping_id = item->mapping_id;
+		// set_result->value_addr = (uintptr_t ) item_get_value_addr(item);
+		// set_result->out_mapping_id = item->mapping_id;
 		set_result->is_success = true;
 		INFO_LOG("MICA node [%d] get set request, set key_hash is \"%lx\",  mapping id is [%u] , value addr is [%p]", \
 						server_instance->server_id, req_info->key_hash, set_result->out_mapping_id, set_result->value_addr);
@@ -274,15 +262,6 @@ dhmp_mica_set_request_handler(struct post_datagram *req)
 		Assert(false);
 	}
 
-	// 拷贝 key 和 key 的长度
-	if (!IS_HEAD(server_instance->server_type) &&
-		!IS_MIRROR(server_instance->server_type))
-	{
-		memcpy(set_result->key_data, key_addr, req_info->key_length);
-		set_result->key_length = req_info->key_length;
-		set_result->key_hash = req_info->key_hash;
-	}
-
 	INFO_LOG("key_hash is %lx, len is %lu, addr is %p ", set_result->key_hash, set_result->key_length, key_addr);
 
 	// 填充 response 报文
@@ -292,16 +271,6 @@ dhmp_mica_set_request_handler(struct post_datagram *req)
 	resp->info_type = MICA_SET_RESPONSE;
 	resp->info_length = resp_len;
 	resp->done_flag = false;						// request_handler 不关心 done_flag（不需要阻塞）
-
-	// 各副本节点（除了主节点直接负责的副本节点）还需要向各自的直接上游
-	// 节点发送自己的新分配的 item 的 mappingID 和虚拟地址
-	if (!IS_HEAD(server_instance->server_type) &&
-		!IS_MIRROR(server_instance->server_type))
-	{
-		// 发送给上游节点，我们是被动建立连接的一方，是服务端
-		dhmp_post_send(find_connect_client_by_nodeID(server_instance->server_id - 1),\
-						make_basic_msg(&resp_msg, resp));
-	}
 
 	return resp;
 }
@@ -313,8 +282,8 @@ dhmp_set_response_handler(struct dhmp_msg* msg)
 	struct dhmp_mica_set_response *resp_info = \
 			(struct dhmp_mica_set_response *) DATA_ADDR(resp, 0);
 
-	if (IS_REPLICA(server_instance->server_type))
-		Assert(replica_is_ready == true);
+	Assert(!IS_REPLICA(server_instance->server_type)); // 在星型结构中没有副本节点这个概念
+	Assert(!IS_MIRROR(server_instance->server_type)); // 镜像节点从不会主动发布写操作，所以绝对不会调用这个函数
 
 	if (IS_MAIN(server_instance->server_type))
 	{
@@ -333,29 +302,7 @@ dhmp_set_response_handler(struct dhmp_msg* msg)
 	}
 	else	// 上游节点（副本节点执行下面的逻辑）
 	{ 
-		// 由于上游副本节点没有发布 dhmp_mica_set_request， 所以 resp->req_ptr 指针
-		// 没有意义，不要去试图访问 req_ptr 指针
-		uint64_t key_hash = resp_info->key_hash;
-		size_t key_length = resp_info->key_length;
-		uint8_t * key_addr = (uint8_t*)resp_info->key_data;
-		struct mehcached_item * target_item;
-		struct mehcached_table *table = &table_o; // 副本节点只有一个 table
-
-		// 这个时刻一定要保证 hash 表已经初始化完成了
-		// 根据 key_hash 查表，将下游节点的 out_mapping_id 和 out_value_addr 赋值
-		// 有可能下游节点已经向上游节点返回set信息，但是主节点的set信息元数据还没有到达，因此需要while等待
-		INFO_LOG("key_hash is %lx, len is %lu, addr is %p ", key_hash, key_length, key_addr);
-		while (true)
-		{
-			target_item = find_item(table, key_hash , key_addr, key_length);
-			if (target_item != NULL)
-				break;
-		}
-
-		target_item->mapping_id = resp_info->out_mapping_id;
-		target_item->remote_value_addr = resp_info->value_addr;
-		INFO_LOG("Node [%d] recv downstram node's key_hash \"[%lx]\"'s virtual addr info is %p", \
-						server_instance->server_id, resp_info->key_hash, target_item->remote_value_addr);
+		Assert(false);
 	}
 }
 
@@ -374,8 +321,7 @@ dhmp_mica_get_request_handler(struct post_datagram *req)
 	req_info  = (struct dhmp_mica_get_request *) DATA_ADDR(req, 0);
 	key_addr = (void*)req_info->data;
 
-	if (IS_REPLICA(server_instance->server_type))
-		Assert(replica_is_ready == true);
+	Assert(!IS_REPLICA(server_instance->server_type)); // 在星型结构中没有副本节点这个概念
 
 	// 在调用 get 之前还不能确定需要返回的报文长度的大小
 	// 但是处于简单和避免两次RPC交互，我们默认value的长度为1k
@@ -399,8 +345,7 @@ dhmp_mica_get_request_handler(struct post_datagram *req)
 						out_value,
 						&in_out_value_length,
 						&out_expire_time,
-						false, 
-						false);	// 我们获取带 header 和 tailer 的 value
+						false);	
 
 	// TODO 增加get失败的原因：不存在还是version不一致
 	if (re== false)
@@ -466,91 +411,91 @@ dhmp_get_response_handler(struct dhmp_msg* msg)
 	resp->req_ptr->done_flag = true;
 }
 
-static struct post_datagram * 
-dhmp_mica_update_notify_request_handler(struct post_datagram *req)
-{
-	Assert(IS_REPLICA(server_instance->server_type));
-	struct post_datagram *resp;
-	struct dhmp_update_notify_request  * req_info;
-	struct dhmp_update_notify_response * set_result;
-	size_t resp_len = sizeof(struct dhmp_update_notify_response);
+// static struct post_datagram * 
+// dhmp_mica_update_notify_request_handler(struct post_datagram *req)
+// {
+// 	Assert(IS_REPLICA(server_instance->server_type));
+// 	struct post_datagram *resp;
+// 	struct dhmp_update_notify_request  * req_info;
+// 	struct dhmp_update_notify_response * set_result;
+// 	size_t resp_len = sizeof(struct dhmp_update_notify_response);
 
-	// 访问 value 各部分的基址
-	struct mehcached_item * update_item;
-	struct mehcached_table *table = &table_o;
-    struct midd_value_header* value_base;
-    uint8_t* value_data;
-    struct midd_value_tail* value_tail;
-	size_t key_align_length;
-	size_t value_len, true_value_len;
-	uint64_t item_offset;
+// 	// 访问 value 各部分的基址
+// 	struct mehcached_item * update_item;
+// 	struct mehcached_table *table = &table_o;
+//     struct midd_value_header* value_base;
+//     uint8_t* value_data;
+//     struct midd_value_tail* value_tail;
+// 	size_t key_align_length;
+// 	size_t value_len, true_value_len;
+// 	uint64_t item_offset;
 
-	if (IS_REPLICA(server_instance->server_type))
-		Assert(replica_is_ready == true);
+// 	if (IS_REPLICA(server_instance->server_type))
+// 		Assert(replica_is_ready == true);
 
-	req_info  = (struct dhmp_update_notify_request *) DATA_ADDR(req, 0);
-	update_item = get_item_by_offset(table, req_info->item_offset);
+// 	req_info  = (struct dhmp_update_notify_request *) DATA_ADDR(req, 0);
+// 	update_item = get_item_by_offset(table, req_info->item_offset);
 
-	key_align_length = MEHCACHED_ROUNDUP8(MEHCACHED_KEY_LENGTH(update_item->kv_length_vec));
-	value_len = MEHCACHED_VALUE_LENGTH(update_item->kv_length_vec);
-	true_value_len = value_len - VALUE_HEADER_LEN - VALUE_TAIL_LEN;
+// 	key_align_length = MEHCACHED_ROUNDUP8(MEHCACHED_KEY_LENGTH(update_item->kv_length_vec));
+// 	value_len = MEHCACHED_VALUE_LENGTH(update_item->kv_length_vec);
+// 	true_value_len = value_len - VALUE_HEADER_LEN - VALUE_TAIL_LEN;
 
-	item_offset = get_offset_by_item(table, update_item);
-	Assert(item_offset == req_info->item_offset);
+// 	item_offset = get_offset_by_item(table, update_item);
+// 	Assert(item_offset == req_info->item_offset);
 
-    value_base = (struct midd_value_header*)(update_item->data + key_align_length);
-    value_data = update_item->data + key_align_length + VALUE_HEADER_LEN;
-    value_tail = (struct midd_value_tail*) VALUE_TAIL_ADDR(update_item->data , key_align_length, true_value_len);
+//     value_base = (struct midd_value_header*)(update_item->data + key_align_length);
+//     value_data = update_item->data + key_align_length + VALUE_HEADER_LEN;
+//     value_tail = (struct midd_value_tail*) VALUE_TAIL_ADDR(update_item->data , key_align_length, true_value_len);
 
-	INFO_LOG("Node [%d] recv update value, now value version is [%ld]", \
-				server_instance->server_id, value_base->version);
+// 	INFO_LOG("Node [%d] recv update value, now value version is [%ld]", \
+// 				server_instance->server_id, value_base->version);
 
-	MICA_TIME_COUNTER_INIT();
-	while (memcmp(&value_base->version, &value_tail->version, sizeof(uint64_t)) != 0)
-		MICA_TIME_COUNTER_CAL();
+// 	MICA_TIME_COUNTER_INIT();
+// 	while (memcmp(&value_base->version, &value_tail->version, sizeof(uint64_t)) != 0)
+// 		MICA_TIME_COUNTER_CAL();
 	
-	MICA_TIME_COUNTER_INIT();
-	while (value_tail->dirty == true)
-		MICA_TIME_COUNTER_CAL();
+// 	MICA_TIME_COUNTER_INIT();
+// 	while (value_tail->dirty == true)
+// 		MICA_TIME_COUNTER_CAL();
 
-	INFO_LOG("Node [%d] finished update value, now value version is [%ld]", \
-				server_instance->server_id, value_base->version);
+// 	INFO_LOG("Node [%d] finished update value, now value version is [%ld]", \
+// 				server_instance->server_id, value_base->version);
 
-	// 在收到上游节点传递来的value后，继续向下游节点传播
-	if (!IS_TAIL(server_instance->server_type))
-	{
-		// 生成 nic 任务下放到网卡发送链表
-        makeup_update_request(update_item, item_offset, (uint8_t *)value_base, value_len);
-		INFO_LOG("Node [%d] continue send value to downstream node", server_instance->server_id);
-	}
+// 	// 在收到上游节点传递来的value后，继续向下游节点传播
+// 	if (!IS_TAIL(server_instance->server_type))
+// 	{
+// 		// 生成 nic 任务下放到网卡发送链表
+//         makeup_update_request(update_item, item_offset, (uint8_t *)value_base, value_len);
+// 		INFO_LOG("Node [%d] continue send value to downstream node", server_instance->server_id);
+// 	}
 
-	resp_len = sizeof(struct dhmp_update_notify_response);
-	resp = (struct post_datagram *) malloc(DATAGRAM_ALL_LEN(resp_len));
-	set_result = (struct dhmp_update_notify_response *) DATA_ADDR(resp, 0);
-	set_result->is_success = true;
+// 	resp_len = sizeof(struct dhmp_update_notify_response);
+// 	resp = (struct post_datagram *) malloc(DATAGRAM_ALL_LEN(resp_len));
+// 	set_result = (struct dhmp_update_notify_response *) DATA_ADDR(resp, 0);
+// 	set_result->is_success = true;
 
-	// 填充 response 报文
-	resp->req_ptr  = req->req_ptr;		    		// 原样返回对方用于消息完成时的报文的判别
-	resp->resp_ptr = resp;							// 自身用于消息完成时报文的判别
-	resp->node_id  = server_instance->server_id;	// 向对端发送自己的 node_id 用于身份辨识
-	resp->info_type = MICA_REPLICA_UPDATE_RESPONSE;
-	resp->info_length = resp_len;
-	resp->done_flag = false;						// request_handler 不关心 done_flag（不需要阻塞）
+// 	// 填充 response 报文
+// 	resp->req_ptr  = req->req_ptr;		    		// 原样返回对方用于消息完成时的报文的判别
+// 	resp->resp_ptr = resp;							// 自身用于消息完成时报文的判别
+// 	resp->node_id  = server_instance->server_id;	// 向对端发送自己的 node_id 用于身份辨识
+// 	resp->info_type = MICA_REPLICA_UPDATE_RESPONSE;
+// 	resp->info_length = resp_len;
+// 	resp->done_flag = false;						// request_handler 不关心 done_flag（不需要阻塞）
 
-	return resp;
-}
+// 	return resp;
+// }
 
-static void 
-dhmp_mica_update_notify_response_handler(struct dhmp_msg* msg)
-{
-	struct post_datagram *resp = (struct post_datagram *) (msg->data); 
-	struct post_datagram *req = resp->req_ptr; 
-	struct dhmp_update_notify_response *resp_info = \
-			(struct dhmp_update_notify_response *) DATA_ADDR(resp, 0);
+// static void 
+// dhmp_mica_update_notify_response_handler(struct dhmp_msg* msg)
+// {
+// 	struct post_datagram *resp = (struct post_datagram *) (msg->data); 
+// 	struct post_datagram *req = resp->req_ptr; 
+// 	struct dhmp_update_notify_response *resp_info = \
+// 			(struct dhmp_update_notify_response *) DATA_ADDR(resp, 0);
 
-	INFO_LOG("Node [%d] get update response!" , server_instance->server_id);
-	resp->req_ptr->done_flag = true;
-}
+// 	INFO_LOG("Node [%d] get update response!" , server_instance->server_id);
+// 	resp->req_ptr->done_flag = true;
+// }
 
 // 所有的双边 rdma 操作 request_handler 的路由入口
 // 这个函数只暴露基本的数据报 post_datagram 结构体，不涉及具体的数据报内容
@@ -586,10 +531,10 @@ static void dhmp_send_request_handler(struct dhmp_transport* rdma_trans,
 			INFO_LOG ( "Recv [MICA_GET_REQUEST] from node [%d]",  req->node_id);
 			resp = dhmp_mica_get_request_handler(req);
 			break;
-		case MICA_REPLICA_UPDATE_REQUEST:
-			INFO_LOG ( "Recv [MICA_REPLICA_UPDATE_REQUEST] from node [%d]",  req->node_id);
-			resp = dhmp_mica_update_notify_request_handler(req);
-			break;
+		// case MICA_REPLICA_UPDATE_REQUEST:
+		// 	INFO_LOG ( "Recv [MICA_REPLICA_UPDATE_REQUEST] from node [%d]",  req->node_id);
+		// 	resp = dhmp_mica_update_notify_request_handler(req);
+		// 	break;
 		default:
 			ERROR_LOG("Unknown request info_type %d", req->info_type);
 			exit(0);
@@ -647,7 +592,8 @@ dhmp_send_respone_handler(struct dhmp_transport* rdma_trans,
 			break;		
 		case MICA_REPLICA_UPDATE_RESPONSE:
 			INFO_LOG ( "Recv [MICA_REPLICA_UPDATE_RESPONSE] from node [%d]",  resp->node_id);
-			dhmp_mica_update_notify_response_handler(msg);
+			// dhmp_mica_update_notify_response_handler(msg);
+			assert(false);
 			break;				
 		default:
 			break;

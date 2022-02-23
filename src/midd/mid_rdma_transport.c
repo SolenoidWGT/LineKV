@@ -485,15 +485,3 @@ int dhmp_rdma_write_packed (struct dhmp_write_request * write_req)
 	return dhmp_rdma_write(write_req->rdma_trans, write_req->mr, \
 			write_req->local_addr, write_req->length, write_req->remote_addr);	
 }
-
-int dhmp_rdma_write_mica_warpper (struct dhmp_transport* rdma_trans,
-						struct mehcached_item * item,
-						struct ibv_mr* mr, 
-						size_t length,
-						uintptr_t remote_addr)
-{
-	dhmp_rdma_write(rdma_trans, mr, 
-					(void*)item_get_value_addr(item), 
-					VALUE_HEADER_LEN + length  + VALUE_TAIL_LEN, 
-					remote_addr);
-}						

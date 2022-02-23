@@ -12,6 +12,7 @@
 // See the License for the specific language governing permissions and
 // limitations under the License.
 
+#include "shm.h"
 #include "util.h"
 
 #include <fcntl.h>
@@ -21,37 +22,59 @@
 #include <string.h>
 #include <unistd.h>
 #include <sys/stat.h>
-
-#include "shm_private.h"
+#include "dhmp_log.h"
 
 #ifdef USE_DPDK
 #include <rte_lcore.h>
 #include <rte_debug.h>
 #endif
 
-#ifdef USE_RDMA
-#include "mica_rdma_common.h"
-#include "table.h"
-#endif
 MEHCACHED_BEGIN
+
+struct mehcached_shm_page
+{
+	char path[PATH_MAX];
+	void *addr;
+	void *paddr;
+	size_t numa_node;
+	size_t in_use;
+};
+
+struct mehcached_shm_entry
+{
+	size_t refcount;	// reference by mapping
+	size_t to_remove;	// remove entry when refcount == 0
+	size_t length;
+	size_t num_pages;
+	size_t *pages;
+};
+
+struct mehcached_shm_mapping
+{
+	size_t entry_id;
+	void *addr;
+	size_t length;
+	size_t page_offset;
+	size_t num_pages;
+};
+
+#define MEHCACHED_SHM_MAX_PAGES (65536)
+#define MEHCACHED_SHM_MAX_ENTRIES (8192)
+#define MEHCACHED_SHM_MAX_MAPPINGS (16384)
 
 static size_t mehcached_shm_page_size;
 static uint64_t mehcached_shm_state_lock;
-static uint64_t	used_mapping_nums = 0;
-
 static struct mehcached_shm_page mehcached_shm_pages[MEHCACHED_SHM_MAX_PAGES];
-// 管理所有的page分配关系，一次 mehcached_shm_alloc 函数对应一个对象
-// static struct mehcached_shm_entry mehcached_shm_entries[MEHCACHED_SHM_MAX_ENTRIES];
-// 管理所有的映射关系，一次 mehcached_shm_map 函数调用对应一个对象
+static struct mehcached_shm_entry mehcached_shm_entries[MEHCACHED_SHM_MAX_ENTRIES];
 static struct mehcached_shm_mapping mehcached_shm_mappings[MEHCACHED_SHM_MAX_MAPPINGS];
 static size_t mehcached_shm_used_memory;
 
-static const char *mehcached_shm_path_prefix = "/home/gtwang/midd_mica/map_files/mehcached_shm_";
+static const char *mehcached_shm_path_prefix = "/mnt/huge/mehcached_shm_";
 
 size_t
 mehcached_shm_adjust_size(size_t size)
 {
-    return (uint64_t)MEHCACHED_ROUNDUP4K(size);
+    return (uint64_t)MEHCACHED_ROUNDUP2M(size);
 }
 
 static
@@ -71,19 +94,10 @@ mehcached_shm_path(size_t page_id, char out_path[PATH_MAX])
 	snprintf(out_path, PATH_MAX, "%s%zu", mehcached_shm_path_prefix, page_id);
 }
 
-// 用计数器也无法判断是否发生了锁重入
-// static int enter_count = 0;
+
 void
 mehcached_shm_lock()
 {
-	// if (enter_count == 1)
-	// {
-	// 	ERROR_LOG("mehcached_shm_lock re_enter error!");
-	// 	sleep(1000);
-	// 	exit(0);
-	// }
-
-	// enter_count++;
 	while (1)
 	{
 		if (__sync_bool_compare_and_swap((volatile uint64_t *)&mehcached_shm_state_lock, 0UL, 1UL))
@@ -91,12 +105,12 @@ mehcached_shm_lock()
 	}
 }
 
+
 void
 mehcached_shm_unlock()
 {
 	memory_barrier();
 	*(volatile uint64_t *)&mehcached_shm_state_lock = 0UL;
-	// enter_count--;
 }
 
 void
@@ -109,7 +123,7 @@ mehcached_shm_dump_page_info()
 		if (mehcached_shm_pages[page_id].addr == NULL)
 			continue;
 
-		INFO_LOG("page %zu: addr=%p numa_node=%zu in_use=%zu", page_id, mehcached_shm_pages[page_id].addr, mehcached_shm_pages[page_id].numa_node, mehcached_shm_pages[page_id].in_use);
+		INFO_LOG("page %zu: addr=%p numa_node=%zu in_use=%zu\n", page_id, mehcached_shm_pages[page_id].addr, mehcached_shm_pages[page_id].numa_node, mehcached_shm_pages[page_id].in_use);
 	}
 	mehcached_shm_unlock();
 }
@@ -156,10 +170,6 @@ mehcached_shm_init(size_t page_size, size_t num_numa_nodes, size_t num_pages_to_
 	mehcached_shm_used_memory = 0;
 }
 
-/*
- * mehcached_shm_find_free_address 函数返回一个大小为 size 且和 page
- * 大小对齐的虚拟地址起始地址。
- */
 void *
 mehcached_shm_find_free_address(size_t size)
 {
@@ -170,7 +180,7 @@ mehcached_shm_find_free_address(size_t size)
 
 	if (mehcached_next_power_of_two(alignment) != alignment)
 	{
-		INFO_LOG("invalid alignment");
+		INFO_LOG("invalid alignment\n");
 		return NULL;
 	}
 
@@ -178,7 +188,7 @@ mehcached_shm_find_free_address(size_t size)
 	if (fd == -1)
 	{
 		perror("");
-		Assert(false);
+		assert(false);
 		return NULL;
 	}
 
@@ -198,10 +208,6 @@ mehcached_shm_find_free_address(size_t size)
 	return p;
 }
 
-/*
- * mehcached_shm_alloc 函数返回的是 
- * entry_id 为在 mehcached_shm_entries 数组里面的id
- */
 size_t
 mehcached_shm_alloc(size_t length, size_t numa_node)
 {
@@ -215,6 +221,7 @@ void
 mehcached_shm_check_remove(size_t entry_id)
 {
     INFO_LOG("NOTICE: mehcached_shm_check_remove not work! : %u", entry_id);
+
 }
 
 bool
@@ -224,10 +231,6 @@ mehcached_shm_schedule_remove(size_t entry_id)
     return true;
 }
 
-/*
- * 将一个和page大小对齐的虚拟地址起始地址映射到大页上
- * 
- */
 size_t
 mehcached_shm_map(size_t entry_id, void *ptr, void ** bucket_ptr, 
 					size_t offset, size_t length, bool table_init MEHCACHED_UNUSED)
@@ -248,8 +251,7 @@ mehcached_shm_map(size_t entry_id, void *ptr, void ** bucket_ptr,
 	}
 
 	// 如果在初始化阶段，则不加锁，防止锁重入错误
-	if (get_table_init_state())
-		mehcached_shm_lock();
+	mehcached_shm_lock();
 
 	// find empty mapping
 	size_t mapping_id;
@@ -262,8 +264,7 @@ mehcached_shm_map(size_t entry_id, void *ptr, void ** bucket_ptr,
 	if (mapping_id == MEHCACHED_SHM_MAX_MAPPINGS)
 	{
 		ERROR_LOG("too many mappings");
-		if (get_table_init_state())
-			mehcached_shm_unlock();
+		mehcached_shm_unlock();
 		return (size_t)-1;
 	}
 
@@ -283,8 +284,6 @@ mehcached_shm_map(size_t entry_id, void *ptr, void ** bucket_ptr,
 	p = ret_p;
 	*bucket_ptr = ret_p;
 
-	used_mapping_nums++;	// 增加计数
-
     if (ret_p == MAP_FAILED)
     {
         ERROR_LOG("mmap failed at %p", p);
@@ -302,34 +301,10 @@ mehcached_shm_map(size_t entry_id, void *ptr, void ** bucket_ptr,
 			page_index_clean++;
 			p = (void *)((size_t)p + mehcached_shm_page_size);
 		}
-		if (get_table_init_state())
-			mehcached_shm_unlock();
+		mehcached_shm_unlock();
 		return (size_t)-1;
 	}
 
-#ifdef USE_RDMA
-	if (!IS_MAIN(server_instance->server_type) /* && table_init == false*/)
-	{
-		struct dhmp_device * dev = dhmp_get_dev_from_server();
-		struct ibv_mr * mr=ibv_reg_mr(dev->pd, p, total_alloc_pages, 
-										IBV_ACCESS_LOCAL_WRITE|
-										IBV_ACCESS_REMOTE_READ|
-										IBV_ACCESS_REMOTE_WRITE|
-										IBV_ACCESS_REMOTE_ATOMIC);
-		if(!mr)	
-		{
-			ERROR_LOG("rdma register memory error. register mem length is [%u], error number is [%d], reason is \"%s\"", \
-								total_alloc_pages, errno, strerror(errno));
-			mehcached_shm_unlock();
-			Assert(false);
-		}
-
-		mehcached_shm_mappings[mapping_id].mr = mr;
-	}
-	else
-		mehcached_shm_mappings[mapping_id].mr = NULL;
-
-#endif
 	// register mapping
 	mehcached_shm_used_memory += num_pages * mehcached_shm_page_size;
 
@@ -340,8 +315,7 @@ mehcached_shm_map(size_t entry_id, void *ptr, void ** bucket_ptr,
 	mehcached_shm_mappings[mapping_id].num_pages = num_pages;
 
 	// 如果在初始化阶段，则不加锁，防止锁重入错误
-	if (get_table_init_state())
-		mehcached_shm_unlock();
+	mehcached_shm_unlock();
 
 #ifndef NDEBUG
 	INFO_LOG("created new mapping %zu (shm entry %zu, page_offset=%zu, num_pages=%zu) at %p", mapping_id, entry_id, page_offset, num_pages, ptr);
@@ -365,7 +339,7 @@ mehcached_shm_unmap(void *ptr)
 
 	if (mapping_id == MEHCACHED_SHM_MAX_MAPPINGS)
 	{
-		ERROR_LOG("invalid unmap");
+		INFO_LOG("invalid unmap\n");
 		mehcached_shm_unlock();
 		return false;
 	}
@@ -379,8 +353,8 @@ mehcached_shm_unmap(void *ptr)
 	}
 
 	// remove reference to entry
-	// --mehcached_shm_entries[mehcached_shm_mappings[mapping_id].entry_id].refcount;
-    // mehcached_shm_check_remove(mehcached_shm_mappings[mapping_id].entry_id);
+	--mehcached_shm_entries[mehcached_shm_mappings[mapping_id].entry_id].refcount;
+	mehcached_shm_check_remove(mehcached_shm_mappings[mapping_id].entry_id);
 
 	// remove mapping
 	memset(&mehcached_shm_mappings[mapping_id], 0, sizeof(mehcached_shm_mappings[mapping_id]));
@@ -388,7 +362,7 @@ mehcached_shm_unmap(void *ptr)
 	mehcached_shm_unlock();
 
 #ifndef NDEBUG
-	INFO_LOG("removed mapping %zu at %p", mapping_id, ptr);
+	INFO_LOG("removed mapping %zu at %p\n", mapping_id, ptr);
 #endif
 
 	return true;
@@ -406,42 +380,5 @@ mehcached_shm_get_memuse()
 	return mehcached_shm_used_memory;
 }
 
-#ifdef USE_RDMA
-inline size_t get_mapping_nums()
-{
-	return used_mapping_nums;
-}
+MEHCACHED_END
 
-void copy_mapping_info(void * src)
-{
-	memcpy(src, mehcached_shm_mappings, \
-		sizeof(MEHCACHED_SHM_MAX_MAPPINGS * sizeof(struct mehcached_shm_mapping)));
-}
-
-
-void dump_mr(struct ibv_mr * mr)
-{
-	INFO_LOG("MR INFO: %p, %u, %p", mr->addr, mr->lkey, mr->context);
-}
-
-void copy_mapping_mrs_info(struct ibv_mr * mrs)
-{
-	size_t i;
-	for (i = 0; i< used_mapping_nums; i++)
-	{
-		INFO_LOG("mapping id is %u", i);
-		// 只拷贝第一个 MR
-		if (mehcached_shm_mappings[i].mr)
-		{
-			dump_mr(mehcached_shm_mappings[i].mr);
-			memcpy(&mrs[i], mehcached_shm_mappings[i].mr, sizeof(struct ibv_mr));
-		}
-		else
-		{
-			ERROR_LOG("Unexpected NULL ptr! [%d]", i);
-			// assert(false);
-			memset(&mrs[i], 0, sizeof(struct ibv_mr));
-		}
-	}
-}
-#endif

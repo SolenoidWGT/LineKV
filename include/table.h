@@ -15,6 +15,7 @@
 #pragma once
 
 #include "common.h"
+//#include "alloc_pool.h"
 #include "alloc_malloc.h"
 #include "alloc_dynamic.h"
 
@@ -62,8 +63,7 @@ struct mehcached_bucket
 {
     uint32_t version;   // XXX: is uint32_t wide enough?
     uint32_t next_extra_bucket_index;   // 1-base; 0 = no extra bucket
-    // 一个 bucket 包含 15 个index entry， 并且每个存储 bucket 都有固定数量的 index entry （可在源代码中配置；在我们的原型中为 15 个，正好占用两个缓存行）。
-    uint64_t item_vec[MEHCACHED_ITEMS_PER_BUCKET]; 
+    uint64_t item_vec[MEHCACHED_ITEMS_PER_BUCKET];
 
     // 16: tag (1-base)
     //  8: alloc id
@@ -109,14 +109,6 @@ struct mehcached_item
     #define MEHCACHED_KV_LENGTH_VEC(key_length, value_length) (((uint32_t)(key_length) << 24) | (uint32_t)(value_length))
 
     // the rest is meaningful only when kv_length_vec != 0
-    /* WGT begin */
-    // #define MICA_MAX_NODE_NUMS 10
-    // size_t mapping_id[MICA_MAX_NODE_NUMS];
-    // uintptr_t value_addr[MICA_MAX_NODE_NUMS];
-    size_t mapping_id;
-    uintptr_t remote_value_addr;
-    /* WGT end */
-
     uint32_t expire_time;
     uint64_t key_hash;
     uint8_t data[0];
@@ -146,7 +138,6 @@ struct mehcached_table
     uint32_t num_buckets;
     uint32_t num_buckets_mask;
     uint32_t num_extra_buckets;
-    size_t mapping_id;
 
     struct
     {
@@ -215,8 +206,6 @@ struct mehcached_request
     // 24
 };
 
-extern struct mehcached_table table_o;;
-
 static
 void
 mehcached_print_bucket(const struct mehcached_bucket *bucket);
@@ -243,18 +232,15 @@ mehcached_calc_tag(uint64_t key_hash);
 
 static
 void
-mehcached_set_item(struct mehcached_item *item, uint64_t key_hash, const uint8_t *key, uint32_t key_length, const uint8_t *value, uint32_t value_length, uint32_t expire_time, struct mehcached_item *main_item);
+mehcached_set_item(struct mehcached_item *item, uint64_t key_hash, const uint8_t *key, uint32_t key_length, const uint8_t *value, uint32_t value_length, uint32_t expire_time);
 
 static
 void
-mehcached_set_item_value(struct mehcached_item *item, const uint8_t *value, uint32_t value_length, uint32_t expire_time, struct mehcached_item *main_item);
+mehcached_set_item_value(struct mehcached_item *item, const uint8_t *value, uint32_t value_length, uint32_t expire_time);
 
 static
 bool
 mehcached_compare_keys(const uint8_t *key1, size_t key1_len, const uint8_t *key2, size_t key2_len);
-
-static bool
-mehcached_compare_keys_warpper(const uint8_t *key1, size_t key1_len, const uint8_t *key2, size_t key2_len);
 
 static
 void
@@ -268,28 +254,18 @@ static
 void
 mehcached_prefetch_alloc(struct mehcached_prefetch_state *in_out_prefetch_state);
 
-bool
-mehcached_get(uint8_t current_alloc_id, struct mehcached_table *table, uint64_t key_hash, const uint8_t *key, size_t key_length, uint8_t *out_value, size_t *in_out_value_length, uint32_t *out_expire_time, bool readonly, bool get_true_value);
 
 bool
-mid_mehcached_get_warpper(uint8_t current_alloc_id MEHCACHED_UNUSED, struct mehcached_table *table, uint64_t key_hash,
-                            const uint8_t *key, size_t key_length, uint8_t *out_value, size_t *in_out_value_length,
-                            uint32_t *out_expire_time, bool readonly MEHCACHED_UNUSED, bool get_true_value);
-                            
+mehcached_get(uint8_t current_alloc_id, struct mehcached_table *table, uint64_t key_hash, const uint8_t *key, size_t key_length, uint8_t *out_value, size_t *in_out_value_length, uint32_t *out_expire_time, bool readonly);
+
 static
 bool
 mehcached_test(uint8_t current_alloc_id, struct mehcached_table *table, uint64_t key_hash, const uint8_t *key, size_t key_length);
 
-struct mehcached_item *
-mehcached_set(uint8_t current_alloc_id, struct mehcached_table *table, uint64_t key_hash,
- const uint8_t *key, size_t key_length, const uint8_t *value, 
- size_t value_length, uint32_t expire_time, bool overwrite,
- bool* is_update, bool *is_maintable, struct mehcached_item * main_item);
 
-struct mehcached_item *
-midd_mehcached_set_warpper(uint8_t current_alloc_id, struct mehcached_table *table, uint64_t key_hash,\
-                const uint8_t *key, size_t key_length, const uint8_t *value, size_t value_length,\
-                uint32_t expire_time, bool overwrite, bool *is_update, bool *is_maintable, struct mehcached_item * main_item);
+bool
+mehcached_set(uint8_t current_alloc_id, struct mehcached_table *table, uint64_t key_hash, const uint8_t *key, size_t key_length, const uint8_t *value, size_t value_length, uint32_t expire_time, bool overwrite);
+
 static
 bool
 mehcached_delete(uint8_t current_alloc_id, struct mehcached_table *table, uint64_t key_hash, const uint8_t *key, size_t key_length);
@@ -306,6 +282,7 @@ static
 void
 mehcached_table_reset(struct mehcached_table *table);
 
+static
 void
 mehcached_table_init(struct mehcached_table *table, size_t num_buckets, size_t num_pools, size_t pool_size, bool concurrent_table_read, bool concurrent_table_write, bool concurrent_alloc_write, size_t table_numa_node, size_t alloc_numa_nodes[], double mth_threshold);
 
@@ -313,59 +290,8 @@ static
 void
 mehcached_table_free(struct mehcached_table *table);
 
-bool 
-get_table_init_state();
 
-void 
-set_table_init_state(bool val);
+extern struct mehcached_table table_o;
 
-// WGT ADD
-
-struct midd_value_header
-{
-	uint64_t version;
-	uint64_t value_count;
-	uint8_t data[0];
-};
-
-struct midd_value_tail
-{
-    uint64_t version;
-    volatile bool dirty;     // 我们将脏标志位放在value末尾，最后被更新
-};
-
-struct midd_key_tail
-{
-	uint64_t version;
-	uint64_t key_count;
-	uint8_t data[0];
-};
-
-
-#define VALUE_HEADER_LEN    (sizeof(struct midd_value_header))
-#define VALUE_TAIL_LEN      (sizeof(struct midd_value_tail))
-#define KEY_HEADER_LEN      (sizeof(struct midd_key_tail))
-#define VALUE_TAIL_ADDR(base, key_length, true_value_length) (base + key_length + VALUE_HEADER_LEN + true_value_length)
-#define VALUE_START_ADDR(base, key_length) (base + key_length + VALUE_HEADER_LEN)
-#define WARPPER_KEY_LEN(true_key_len) (true_key_len + KEY_HEADER_LEN)
-#define WARPPER_VALUE_LEN(true_value_len) (VALUE_HEADER_LEN + true_value_len + VALUE_TAIL_LEN)
-struct mehcached_item * 
-find_item(struct mehcached_table *table, uint64_t key_hash, const uint8_t* key, size_t key_length);
-
-size_t mehcached_find_item_index_warpper(const struct mehcached_table *table, struct mehcached_bucket *bucket, uint64_t key_hash, uint16_t tag, const uint8_t *key, size_t key_length, struct mehcached_bucket **located_bucket);
-
-extern struct list_head nic_send_list;
-
-uint8_t * item_get_key_addr(struct mehcached_item *item);
-uint8_t * item_get_value_addr(struct mehcached_item *item);
-void HexDump(const char *buf,int len,int addr);
-
-uint64_t get_offset_by_item(struct mehcached_table *table, struct mehcached_item * item);
-struct mehcached_item * get_item_by_offset(struct mehcached_table *table, uint64_t item_offset);
-void value_get_true_value(uint8_t*true_value, uint8_t* value, size_t value_length);
-
-#define GET_TRUE_VALUE_ADDR(value) ( (uint8_t*)value +  VALUE_HEADER_LEN)
-#define GET_TRUE_VALUE_LEN(value_length) (value_length - VALUE_HEADER_LEN - VALUE_TAIL_LEN)
-#define GET_TRUE_KEY_LEN(key_length) (key_length - KEY_HEADER_LEN)
 MEHCACHED_END
 
