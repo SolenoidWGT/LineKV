@@ -37,7 +37,7 @@
 // 集群中的 node id 编号宏
 #define MAIN_NODE_ID 0
 #define MIRROR_NODE_ID 1
-#define REPLICA_NODE_HEAD_ID 2
+#define REPLICA_NODE_HEAD_ID 1
 #define REPLICA_NODE_TAIL_ID (server_instance->node_nums -1)
 #define REPLICA_NODE_NUMS (server_instance->node_nums - 2)
 
@@ -54,8 +54,8 @@ enum dhmp_node_class {
 };
 
 #define IS_MAIN(type)    (type & (1 << MAIN) )
-#define IS_MIRROR(type)  ( !IS_MAIN(type) )
-#define IS_REPLICA(type) (type & (1 << REPLICA) )
+#define IS_REPLICA(type)  ( type & (1 << REPLICA)  )
+#define IS_MIRROR(type) (type & (1 << MIRROR) )
 // head 是副本节点中的头节点（因为严格意义上来说主节点是头节点）
 #define IS_HEAD(type) (type & (1 << HEAD) )
 // #define IS_MIDDLE(type) (type & (1 << MIDDLE) )
@@ -63,11 +63,10 @@ enum dhmp_node_class {
 
 #define SET_MAIN(type) 	  ( type = (type | (1 << MAIN)   ) )
 #define SET_MIRROR(type)  ( type = (type | (1 << MIRROR) ) )
-#define SET_REPLICA(type) ( type )
-#define SET_HEAD(type)   (  type)
+#define SET_REPLICA(type) ( type = (type | (1 << REPLICA) ) )
+#define SET_HEAD(type)   ( type = (type | (1 << HEAD)   ) )
 // #define SET_MIDDLE(type) ( type = (type | (1 << MIDDLE) ) )
-#define SET_TAIL(type)   (type )
-
+#define SET_TAIL(type)   ( type = (type | (1 << TAIL)   ) )
 
 enum dhmp_msg_type{
 	// DHMP_MSG_MALLOC_REQUEST,
@@ -286,12 +285,12 @@ struct dhmp_write_request
 // 就被删除了
 struct dhmp_update_request
 {
-	struct mehcached_item * item;
-	uint64_t item_offset;
-	struct dhmp_write_request write_info;
+	const uint8_t 		*key;
+	size_t 			key_length; 
+	const uint8_t 		*value;
+	size_t 			value_length;
 	struct list_head sending_list;
 };
-
 
 // 增加一个双边操作用于通知，模仿 hyperloop 的行为
 // 只需要向下游节点发送一个偏移量即可？ 是否安全？？
@@ -312,8 +311,6 @@ extern int wait_work_counter;
 extern int wait_work_expect_counter;
 
 void dump_mr(struct ibv_mr * mr);
-int dhmp_rdma_write_packed (struct dhmp_write_request * write_req);
-void mica_replica_update_notify(uint64_t item_offset);
 extern volatile bool replica_is_ready;
 
 // 最大超时时间，1s, 单位ns

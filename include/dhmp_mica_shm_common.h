@@ -56,5 +56,5 @@ inline size_t get_mapping_nums();
 
 
 struct ibv_mr * mehcached_get_mapping_self_mr(size_t mapping_id);
-void makeup_update_request(struct mehcached_item * item, uint64_t item_offset, const uint8_t *value, uint32_t value_length);
+void makeup_update_request(const uint8_t *key, size_t key_length, const uint8_t *value, size_t value_length);
 #endif

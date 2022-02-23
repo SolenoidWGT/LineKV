@@ -118,7 +118,7 @@ dhmp_ack_request_handler(struct dhmp_transport* rdma_trans,
 		else
 			resp_ack_state = MICA_ACK_INIT_ADDR_OK;
 
-		if (IS_REPLICA(server_instance->server_type) &&
+		if (IS_MIRROR(server_instance->server_type) &&
 			!IS_TAIL(server_instance->server_type) /* && 
 			nic_thread_ready == false */ )
 			resp_ack_state = MICA_ACK_INIT_ADDR_NOT_OK;
@@ -213,7 +213,7 @@ dhmp_mica_set_request_handler(struct post_datagram *req)
 	void * key_addr;
 	void * value_addr;
 
-	Assert(!IS_REPLICA(server_instance->server_type)); // 在星型结构中没有副本节点这个概念
+	Assert(!IS_MIRROR(server_instance->server_type)); // 在星型结构中没有副本节点这个概念
 	Assert(!IS_MAIN(server_instance->server_type));
 
 	req_info  = (struct dhmp_mica_set_request *) DATA_ADDR(req, 0);
@@ -264,6 +264,9 @@ dhmp_mica_set_request_handler(struct post_datagram *req)
 
 	INFO_LOG("key_hash is %lx, len is %lu, addr is %p ", set_result->key_hash, set_result->key_length, key_addr);
 
+	if (IS_REPLICA(server_instance->server_type) && !IS_TAIL(server_instance->server_type))
+		makeup_update_request(key_addr, req_info->key_length, value_addr, req_info->value_length);
+
 	// 填充 response 报文
 	resp->req_ptr  = req->req_ptr;		    		// 原样返回对方用于消息完成时的报文的判别
 	resp->resp_ptr = resp;							// 自身用于消息完成时报文的判别
@@ -282,28 +285,21 @@ dhmp_set_response_handler(struct dhmp_msg* msg)
 	struct dhmp_mica_set_response *resp_info = \
 			(struct dhmp_mica_set_response *) DATA_ADDR(resp, 0);
 
-	Assert(!IS_REPLICA(server_instance->server_type)); // 在星型结构中没有副本节点这个概念
-	Assert(!IS_MIRROR(server_instance->server_type)); // 镜像节点从不会主动发布写操作，所以绝对不会调用这个函数
+	Assert(!IS_MIRROR(server_instance->server_type)); // 在星型结构中没有副本节点这个概念
+	// Assert(!IS_REPLICA(server_instance->server_type)); // 镜像节点从不会主动发布写操作，所以绝对不会调用这个函数
 
-	if (IS_MAIN(server_instance->server_type))
-	{
-		struct post_datagram *req = resp->req_ptr; 
-		struct dhmp_mica_set_request *req_info = \
-				(struct dhmp_mica_set_request *) DATA_ADDR(req, 0);
+	struct post_datagram *req = resp->req_ptr; 
+	struct dhmp_mica_set_request *req_info = \
+			(struct dhmp_mica_set_request *) DATA_ADDR(req, 0);
 
-		req_info->out_mapping_id = resp_info->out_mapping_id;
-		req_info->out_value_addr = resp_info->value_addr;
-		req_info->is_success = resp_info->is_success;		// 新增的成功标识位，如果失败需要重试
+	req_info->out_mapping_id = resp_info->out_mapping_id;
+	req_info->out_value_addr = resp_info->value_addr;
+	req_info->is_success = resp_info->is_success;		// 新增的成功标识位，如果失败需要重试
 
-		resp->req_ptr->done_flag = true;
+	resp->req_ptr->done_flag = true;
 
-		INFO_LOG("Node [%d] set key_hash [%lx] to node[%d]!, is success!", \
-				server_instance->server_id, req_info->key_hash, resp->node_id);
-	}
-	else	// 上游节点（副本节点执行下面的逻辑）
-	{ 
-		Assert(false);
-	}
+	INFO_LOG("Node [%d] set key_hash [%lx] to node[%d]!, is success!", \
+			server_instance->server_id, req_info->key_hash, resp->node_id);
 }
 
 static struct post_datagram * 
@@ -321,7 +317,7 @@ dhmp_mica_get_request_handler(struct post_datagram *req)
 	req_info  = (struct dhmp_mica_get_request *) DATA_ADDR(req, 0);
 	key_addr = (void*)req_info->data;
 
-	Assert(!IS_REPLICA(server_instance->server_type)); // 在星型结构中没有副本节点这个概念
+	Assert(!IS_MIRROR(server_instance->server_type)); // 在星型结构中没有副本节点这个概念
 
 	// 在调用 get 之前还不能确定需要返回的报文长度的大小
 	// 但是处于简单和避免两次RPC交互，我们默认value的长度为1k
@@ -414,7 +410,7 @@ dhmp_get_response_handler(struct dhmp_msg* msg)
 // static struct post_datagram * 
 // dhmp_mica_update_notify_request_handler(struct post_datagram *req)
 // {
-// 	Assert(IS_REPLICA(server_instance->server_type));
+// 	Assert(IS_MIRROR(server_instance->server_type));
 // 	struct post_datagram *resp;
 // 	struct dhmp_update_notify_request  * req_info;
 // 	struct dhmp_update_notify_response * set_result;
@@ -430,7 +426,7 @@ dhmp_get_response_handler(struct dhmp_msg* msg)
 // 	size_t value_len, true_value_len;
 // 	uint64_t item_offset;
 
-// 	if (IS_REPLICA(server_instance->server_type))
+// 	if (IS_MIRROR(server_instance->server_type))
 // 		Assert(replica_is_ready == true);
 
 // 	req_info  = (struct dhmp_update_notify_request *) DATA_ADDR(req, 0);

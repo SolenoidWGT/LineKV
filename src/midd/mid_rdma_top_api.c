@@ -295,46 +295,46 @@ mica_get_remote(uint8_t current_alloc_id,  uint64_t key_hash, const uint8_t *key
 void 
 mica_replica_update_notify(uint64_t item_offset)
 {
-	Assert(!IS_TAIL(server_instance->server_type));
-	INFO_LOG("mica_replica_update_notify offset is [%ld]", item_offset);
-	void * base;
-	void * data_addr;
-	struct post_datagram *req_msg;
-	struct dhmp_update_notify_request *req_data;
-	size_t total_length = 0;
-	size_t target_id;
+	// Assert(!IS_TAIL(server_instance->server_type));
+	// INFO_LOG("mica_replica_update_notify offset is [%ld]", item_offset);
+	// void * base;
+	// void * data_addr;
+	// struct post_datagram *req_msg;
+	// struct dhmp_update_notify_request *req_data;
+	// size_t total_length = 0;
+	// size_t target_id;
 
-	if (IS_MAIN(server_instance->server_type))
-		target_id = REPLICA_NODE_HEAD_ID;
-	else if (IS_REPLICA(server_instance->server_type))
-		target_id = server_instance->server_id + 1;
-	else
-		Assert(false);
+	// if (IS_MAIN(server_instance->server_type))
+	// 	target_id = REPLICA_NODE_HEAD_ID;
+	// else if (IS_MIRROR(server_instance->server_type))
+	// 	target_id = server_instance->server_id + 1;
+	// else
+	// 	Assert(false);
 
-	// 构造报文
-	total_length = sizeof(struct post_datagram) + sizeof(struct dhmp_update_notify_request);
-	base = malloc(total_length); 
-	req_msg  = (struct post_datagram *) base;
-	req_data = (struct dhmp_update_notify_request *)((char *)base + sizeof(struct post_datagram));
+	// // 构造报文
+	// total_length = sizeof(struct post_datagram) + sizeof(struct dhmp_update_notify_request);
+	// base = malloc(total_length); 
+	// req_msg  = (struct post_datagram *) base;
+	// req_data = (struct dhmp_update_notify_request *)((char *)base + sizeof(struct post_datagram));
 
-	// 填充公共报文
-	req_msg->node_id = server_instance->server_id;	 // 向对端发送自己的 node_id 用于身份辨识
-	req_msg->req_ptr = req_msg;
-	req_msg->done_flag = false;
-	req_msg->info_type = MICA_REPLICA_UPDATE_REQUEST;
-	req_msg->info_length = sizeof(struct dhmp_update_notify_request);
+	// // 填充公共报文
+	// req_msg->node_id = server_instance->server_id;	 // 向对端发送自己的 node_id 用于身份辨识
+	// req_msg->req_ptr = req_msg;
+	// req_msg->done_flag = false;
+	// req_msg->info_type = MICA_REPLICA_UPDATE_REQUEST;
+	// req_msg->info_length = sizeof(struct dhmp_update_notify_request);
 
-	// 填充私有报文
-	req_data->item_offset = item_offset;
+	// // 填充私有报文
+	// req_data->item_offset = item_offset;
 
-	if (!dhmp_post_send_info(target_id, base, total_length, NULL))
-		return;
+	// if (!dhmp_post_send_info(target_id, base, total_length, NULL))
+	// 	return;
 	
-	MICA_TIME_COUNTER_INIT();
-	while(req_msg->done_flag == false)
-		MICA_TIME_COUNTER_CAL();
+	// MICA_TIME_COUNTER_INIT();
+	// while(req_msg->done_flag == false)
+	// 	MICA_TIME_COUNTER_CAL();
 
-	free(base);
+	// free(base);
 }
 
 
