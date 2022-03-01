@@ -14,6 +14,21 @@
 static bool 
 dhmp_post_send_info(size_t target_id, void * data, size_t length, struct dhmp_transport *specify_trans);
 
+// PARTITION_NUM
+// 根据 parition 划分 slab 缓冲区
+struct post_datagram *resp_get_slabs[PARTITION_NUM]; 
+
+
+void init_resp_get_slabs()
+{
+	// int i;
+	// for (i = 0; i<PARTITION_NUM; i++)
+	// {
+	// 	resp_slabs[i] = (struct post_datagram *) malloc(DATAGRAM_ALL_LEN(resp_len));
+	// }
+}
+
+
 struct dhmp_transport* 
 dhmp_get_trans_from_addr(void *dhmp_addr)
 {
@@ -252,6 +267,7 @@ mica_set_remote_warpper(uint8_t current_alloc_id,
 				expire_time, overwrite, is_async, req_callback_ptr, target_id,is_update);
 }
 
+// get 操作是副本节点调用，从主节点获取最新的值，由于副本节点不知道最新的值在主节点的地址，所以采用双边操作
 static struct dhmp_mica_get_response*
 mica_get_remote(uint8_t current_alloc_id,  uint64_t key_hash, const uint8_t *key, 
 				size_t key_length, 
@@ -267,7 +283,7 @@ mica_get_remote(uint8_t current_alloc_id,  uint64_t key_hash, const uint8_t *key
 	struct dhmp_mica_get_response* get_resp = (struct dhmp_mica_get_response*)\
 					 malloc(sizeof(struct dhmp_mica_get_response) + MICA_DEFAULT_VALUE_LEN);
 
-	// 构造报文
+	// 构造报文,注意 value 的缓冲区区域我们不发送给远端
 	total_length = sizeof(struct post_datagram) + sizeof(struct dhmp_mica_get_request) + key_length;
 	base = malloc(total_length); 
 	req_msg  = (struct post_datagram *) base;
@@ -327,7 +343,7 @@ mica_get_remote_warpper(uint8_t current_alloc_id,  uint64_t key_hash, const uint
 void 
 mica_replica_update_notify(uint64_t item_offset)
 {
-	Assert(!IS_TAIL(server_instance->server_type));
+	Assert(!IS_TAIL());
 	INFO_LOG("mica_replica_update_notify offset is [%ld]", item_offset);
 	void * base;
 	void * data_addr;
@@ -336,9 +352,9 @@ mica_replica_update_notify(uint64_t item_offset)
 	size_t total_length = 0;
 	size_t target_id;
 
-	if (IS_MAIN(server_instance->server_type))
+	if (IS_MAIN())
 		target_id = REPLICA_NODE_HEAD_ID;
-	else if (IS_REPLICA(server_instance->server_type))
+	else if (IS_REPLICA())
 		target_id = server_instance->server_id + 1;
 	else
 		Assert(false);

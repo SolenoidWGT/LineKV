@@ -21,4 +21,6 @@ int dhmp_memory_register(struct ibv_pd *pd,
 
 
 extern int bit_count(int id);
+void init_cpu_set_map();
+uint8_t CheckXor(const uint8_t *strData, size_t len)  ;
 #endif

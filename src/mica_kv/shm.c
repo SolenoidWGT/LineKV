@@ -174,7 +174,7 @@ mehcached_shm_find_free_address(size_t size)
 		return NULL;
 	}
 
-	int fd = open("/dev/zero", O_RDONLY);
+	int fd = open("/dev/zero", O_RDWR);
 	if (fd == -1)
 	{
 		perror("");
@@ -182,7 +182,7 @@ mehcached_shm_find_free_address(size_t size)
 		return NULL;
 	}
 
-	void *p = mmap(NULL, size + alignment, PROT_READ, MAP_PRIVATE, fd, 0);
+	void *p = mmap(NULL, size + alignment, PROT_WRITE, MAP_PRIVATE, fd, 0);
 
 	close(fd);
 
@@ -192,7 +192,7 @@ mehcached_shm_find_free_address(size_t size)
 		return NULL;
 	}
 
-	munmap(p, size);
+	// munmap(p, size);
 
 	p = (void *)(((size_t)p + (alignment - 1)) & ~(alignment - 1));
 	return p;
@@ -232,13 +232,13 @@ size_t
 mehcached_shm_map(size_t entry_id, void *ptr, void ** bucket_ptr, 
 					size_t offset, size_t length, bool table_init MEHCACHED_UNUSED)
 {
-	// ptr 的起始地址必须和 page 大小对齐
-	if (((size_t)ptr & ~(mehcached_shm_page_size - 1)) != (size_t)ptr)
-	{
-		ERROR_LOG("invalid ptr alignment");
-		exit(0);
-		return (size_t)-1;
-	}
+	// // ptr 的起始地址必须和 page 大小对齐
+	// if (((size_t)ptr & ~(mehcached_shm_page_size - 1)) != (size_t)ptr)
+	// {
+	// 	ERROR_LOG("invalid ptr alignment");
+	// 	exit(0);
+	// 	return (size_t)-1;
+	// }
 
 	// offset 也必须要和 page 大小对齐
 	if ((offset & ~(mehcached_shm_page_size - 1)) != offset)
@@ -279,7 +279,10 @@ mehcached_shm_map(size_t entry_id, void *ptr, void ** bucket_ptr,
     size_t total_alloc_pages = mehcached_shm_page_size * num_pages;
     // 映射到匿名的地址空间上去
     // void *ret_p = mmap(p, total_alloc_pages, PROT_READ | PROT_WRITE,  MAP_FIXED | MAP_ANONYMOUS, -1, 0);
-	void * ret_p = malloc(total_alloc_pages);
+	// ptr 的起始地址必须和 page 大小对齐
+	// void * ret_p = malloc(total_alloc_pages);
+	void * ret_p = mehcached_shm_find_free_address(total_alloc_pages);
+
 	p = ret_p;
 	*bucket_ptr = ret_p;
 
@@ -308,7 +311,7 @@ mehcached_shm_map(size_t entry_id, void *ptr, void ** bucket_ptr,
 	}
 
 #ifdef USE_RDMA
-	if (!IS_MAIN(server_instance->server_type) /* && table_init == false*/)
+	if (!IS_MAIN() /* && table_init == false*/)
 	{
 		struct dhmp_device * dev = dhmp_get_dev_from_server();
 		struct ibv_mr * mr=ibv_reg_mr(dev->pd, p, total_alloc_pages, 

@@ -48,7 +48,7 @@ dhmp_mica_get_cli_MR_request_handler(struct dhmp_transport* rdma_trans,
 			size_t numa_nodes[] = {(size_t)-1};
 
 			// 初始化 hash table 并注册内存
-			mehcached_table_init(table, 1, 1, 256, false, false, false, \
+			mehcached_table_init(table, TABLE_BUCKET_NUMS, 1, TABLE_POOL_SIZE, false, false, false, \
 								numa_nodes[0], numa_nodes, MEHCACHED_MTH_THRESHOLD_FIFO);
 			Assert(table);
 
@@ -119,9 +119,7 @@ dhmp_ack_request_handler(struct dhmp_transport* rdma_trans,
 		else
 			resp_ack_state = MICA_ACK_INIT_ADDR_OK;
 
-		if (IS_REPLICA(server_instance->server_type) &&
-			!IS_TAIL(server_instance->server_type) && 
-			nic_thread_ready == false)
+		if (IS_REPLICA() && !IS_TAIL() &&  nic_thread_ready == false)
 			resp_ack_state = MICA_ACK_INIT_ADDR_NOT_OK;
 
 		mehcached_shm_unlock();
@@ -215,23 +213,22 @@ dhmp_mica_set_request_handler(struct post_datagram *req)
 	void * key_addr;
 	void * value_addr;
 
-	if (IS_REPLICA(server_instance->server_type))
+	if (IS_REPLICA())
 		Assert(replica_is_ready == true);
 
 	req_info  = (struct dhmp_mica_set_request *) DATA_ADDR(req, 0);
 	key_addr = (void*)req_info->data;	
 
-	Assert(!IS_MAIN(server_instance->server_type));
+	Assert(!IS_MAIN());
 	// 不管是 insert 还是 update 副本节点都需要等待上游网卡节点传送数据
-	if (IS_REPLICA(server_instance->server_type))
+	if (IS_REPLICA())
 		value_addr = (void*) 0x1;
 	else
 		value_addr = (void*)key_addr + req_info->key_length;
 
 	// 该节点的 mapping 信息和 mr 信息
 	// 回传key（为了上游节点确定item，仅靠key_hash是不够的）
-	if (!IS_HEAD(server_instance->server_type) &&
-		!IS_MIRROR(server_instance->server_type))
+	if (!IS_HEAD() && !IS_MIRROR())
 		resp_len += req_info->key_length;	
 
 	resp = (struct post_datagram *) malloc(DATAGRAM_ALL_LEN(resp_len));
@@ -254,7 +251,7 @@ dhmp_mica_set_request_handler(struct post_datagram *req)
 						NULL);
 
 	// Assert(is_update == req_info->is_update);
-	if (IS_REPLICA(server_instance->server_type))
+	if (IS_REPLICA())
 		Assert(is_maintable == true);
 
 	if (item != NULL)
@@ -275,13 +272,17 @@ dhmp_mica_set_request_handler(struct post_datagram *req)
 	}
 
 	// 拷贝 key 和 key 的长度
-	if (!IS_HEAD(server_instance->server_type) &&
-		!IS_MIRROR(server_instance->server_type))
+	if (!IS_HEAD() && !IS_MIRROR())
 	{
 		memcpy(set_result->key_data, key_addr, req_info->key_length);
 		set_result->key_length = req_info->key_length;
 		set_result->key_hash = req_info->key_hash;
 	}
+
+	// ONE_LOOP_TIMER 启动一个特殊的进程监视一次循环的时间
+#ifndef ONE_LOOP_TIMER
+
+#endif
 
 	INFO_LOG("key_hash is %lx, len is %lu, addr is %p ", set_result->key_hash, set_result->key_length, key_addr);
 
@@ -295,8 +296,7 @@ dhmp_mica_set_request_handler(struct post_datagram *req)
 
 	// 各副本节点（除了主节点直接负责的副本节点）还需要向各自的直接上游
 	// 节点发送自己的新分配的 item 的 mappingID 和虚拟地址
-	if (!IS_HEAD(server_instance->server_type) &&
-		!IS_MIRROR(server_instance->server_type))
+	if (!IS_HEAD() && !IS_MIRROR())
 	{
 		// 发送给上游节点，我们是被动建立连接的一方，是服务端
 		dhmp_post_send(find_connect_client_by_nodeID(server_instance->server_id - 1),\
@@ -313,10 +313,10 @@ dhmp_set_response_handler(struct dhmp_msg* msg)
 	struct dhmp_mica_set_response *resp_info = \
 			(struct dhmp_mica_set_response *) DATA_ADDR(resp, 0);
 
-	if (IS_REPLICA(server_instance->server_type))
+	if (IS_REPLICA())
 		Assert(replica_is_ready == true);
 
-	if (IS_MAIN(server_instance->server_type))
+	if (IS_MAIN())
 	{
 		struct post_datagram *req = resp->req_ptr; 
 		struct dhmp_mica_set_request *req_info = \
@@ -374,14 +374,15 @@ dhmp_mica_get_request_handler(struct post_datagram *req)
 	req_info  = (struct dhmp_mica_get_request *) DATA_ADDR(req, 0);
 	key_addr = (void*)req_info->data;
 
-	if (IS_REPLICA(server_instance->server_type))
+	if (IS_REPLICA())
 		Assert(replica_is_ready == true);
 
+	// uint16_t partition_id = PARTITION_ID(req_info->key_hash);
 	// 在调用 get 之前还不能确定需要返回的报文长度的大小
 	// 但是处于简单和避免两次RPC交互，我们默认value的长度为1k
 	resp_len = sizeof(struct dhmp_mica_get_response) + MICA_DEFAULT_VALUE_LEN;
 	resp = (struct post_datagram *) malloc(DATAGRAM_ALL_LEN(resp_len));
-	memset(resp, 0, DATAGRAM_ALL_LEN(resp_len));
+	memset(resp, 0, DATAGRAM_ALL_LEN(resp_len));							// 考虑对齐，小心设计结构体的内存布局
 	set_result = (struct dhmp_mica_get_response *) DATA_ADDR(resp, 0);
 	value_addr = (void*)set_result + offsetof(struct dhmp_mica_get_response, out_value);
 
@@ -469,7 +470,7 @@ dhmp_get_response_handler(struct dhmp_msg* msg)
 static struct post_datagram * 
 dhmp_mica_update_notify_request_handler(struct post_datagram *req)
 {
-	Assert(IS_REPLICA(server_instance->server_type));
+	Assert(IS_REPLICA());
 	struct post_datagram *resp;
 	struct dhmp_update_notify_request  * req_info;
 	struct dhmp_update_notify_response * set_result;
@@ -485,7 +486,7 @@ dhmp_mica_update_notify_request_handler(struct post_datagram *req)
 	size_t value_len, true_value_len;
 	uint64_t item_offset;
 
-	if (IS_REPLICA(server_instance->server_type))
+	if (IS_REPLICA())
 		Assert(replica_is_ready == true);
 
 	req_info  = (struct dhmp_update_notify_request *) DATA_ADDR(req, 0);
@@ -517,7 +518,7 @@ dhmp_mica_update_notify_request_handler(struct post_datagram *req)
 				server_instance->server_id, value_base->version);
 
 	// 在收到上游节点传递来的value后，继续向下游节点传播
-	if (!IS_TAIL(server_instance->server_type))
+	if (!IS_TAIL())
 	{
 		// 生成 nic 任务下放到网卡发送链表
         makeup_update_request(update_item, item_offset, (uint8_t *)value_base, value_len);

@@ -18,9 +18,11 @@
 #include "dhmp_top_api.h"
 #include "nic.h"
 
-#define INIT_DHMP_CLIENT_BUFF_SIZE 1024*1024*8
+#define INIT_DHMP_CLIENT_BUFF_SIZE 1024*1024*54
 #define TEST_KV_NUMS    MEHCACHED_ITEMS_PER_BUCKET
-
+#define VALUE_SIZES_NUMS 3
+static size_t TEST_VALUE_SIZE[VALUE_SIZES_NUMS] = {1024, 1024*4, 1024*16};
+static double TEST_RW_RATE[VALUE_SIZES_NUMS] = {0.5, 0.95, 0.05};
 
 struct mehcached_table table_o;
 struct mehcached_table main_node_log_table_o;
@@ -38,7 +40,7 @@ volatile bool replica_is_ready = false;
 
 
 struct test_kv kvs_group[TEST_KV_NUMS];
-static struct test_kv * generate_test_data();
+static struct test_kv * generate_test_data(size_t value_length);
 static void free_test_date();
 
 struct ibv_mr * 
@@ -47,8 +49,7 @@ mehcached_get_mapping_self_mr(size_t mapping_id)
 	return &next_node_mappings->mrs[mapping_id];
 }
 
-static struct test_kv *
-generate_test_data(size_t offset, size_t value_length)
+static struct test_kv * generate_test_data(size_t value_length)
 {
     size_t i;
     struct test_kv *kvs_group;
@@ -57,18 +58,19 @@ generate_test_data(size_t offset, size_t value_length)
 
     for (i = 0; i < TEST_KV_NUMS; i++)
     {
-        size_t key = i;
-        size_t value = i + offset;
+        size_t key = i + value_length/1024;
         // uint64_t key_hash = hash((const uint8_t *)&key, sizeof(key));
-        value_length = sizeof(value) > value_length ? sizeof(value) : value_length;
 
         kvs_group[i].true_key_length = sizeof(key);
         kvs_group[i].true_value_length = value_length;
         kvs_group[i].key = (uint8_t *)malloc(kvs_group[i].true_key_length);
         kvs_group[i].value = (uint8_t*) malloc(kvs_group[i].true_value_length);
 
+        // kvs_group[i].value = mehcached_shm_find_free_address_random(kvs_group[i].true_value_length);
+        kvs_group[i].value_checksum = CheckXor(kvs_group[i].value, kvs_group[i].true_value_length);
+
         memcpy(kvs_group[i].key, &key, kvs_group[i].true_key_length);
-        memcpy(kvs_group[i].value, &value, kvs_group[i].true_value_length);
+        // memcpy(kvs_group[i].value, &value, kvs_group[i].true_value_length);
     }
 
     return kvs_group;
@@ -95,6 +97,16 @@ cmp_item_value(size_t a_value_length, const uint8_t *a_out_value, size_t b_value
     {
         ERROR_LOG("MICA value length error! %lu != %lu", a_value_length, b_value_length);
         re= (false);
+    }
+
+    size_t off = 0;
+    for (off = 0; off < b_value_length; off++)
+    {
+        if (a_out_value[off] != b_out_value[off])
+        {
+            // 打印 unsigned char printf 的 格式是 %hhu
+            printf("%d, %hhu, %hhu\n", off, a_out_value[off], b_out_value[off]);
+        }
     }
 
     if (memcmp(a_out_value, b_out_value, b_value_length) != 0 )
@@ -265,7 +277,7 @@ void test_get_consistent(struct test_kv * kvs)
 }
 
 void
-test_set(struct test_kv * kvs, size_t val_offset)
+test_set(struct test_kv * kvs)
 {
     INFO_LOG("---------------------------test_set()---------------------------");
     Assert(main_table);
@@ -280,14 +292,12 @@ test_set(struct test_kv * kvs, size_t val_offset)
         bool is_update, is_maintable = true;
         struct mehcached_item * item;
         const uint8_t* key = kvs[i].key;
-        size_t new_value = i + val_offset;
-        memcpy(kvs_group[i].value, &new_value, kvs_group[i].true_value_length);  // 更新value
         const uint8_t* value = kvs[i].value;
         size_t true_key_length = kvs[i].true_key_length;
         size_t true_value_length = kvs[i].true_value_length;
         size_t item_offset;
         uint64_t key_hash = hash(key, true_key_length);
-    
+
         item = midd_mehcached_set_warpper(0, main_table, key_hash,\
                                          key, true_key_length, \
                                          value, true_value_length, 0, true, &is_update, &is_maintable, NULL);
@@ -392,36 +402,37 @@ int main()
     next_node_mappings = (struct replica_mappings *) malloc(sizeof(struct replica_mappings));
     memset(next_node_mappings, 0, sizeof(struct replica_mappings));
 
-    if (IS_MAIN(server_instance->server_type))
+    if (IS_MAIN())
     {
         if (server_instance->node_nums < 3)
         {
             ERROR_LOG("The number of cluster is not enough");
             exit(0);
         }
-        Assert(server_instance->server_id == 0);
+        INFO_LOG("main node id is %d", server_instance->server_id);
+        Assert(server_instance->server_id == (size_t)0);
     }
 
     // 主节点和镜像节点初始化本地hash表
-    if (IS_MAIN(server_instance->server_type))
+    if (IS_MAIN())
     {
-        mehcached_table_init(main_table, 1, 1, 256, false, false, false,\
+        mehcached_table_init(main_table, TABLE_BUCKET_NUMS, 1, TABLE_POOL_SIZE, false, false, false,\
              numa_nodes[0], numa_nodes, MEHCACHED_MTH_THRESHOLD_FIFO);
-        mehcached_table_init(log_table, 1, 1, 256, false, false, false,\
+        mehcached_table_init(log_table, TABLE_BUCKET_NUMS, 1, TABLE_POOL_SIZE, false, false, false,\
              numa_nodes[0], numa_nodes, MEHCACHED_MTH_THRESHOLD_FIFO);
         Assert(main_table);
     }
 
-    if (IS_MIRROR(server_instance->server_type))
+    if (IS_MIRROR())
     {
-        mehcached_table_init(main_table, 1, 1, 256, false, false, false,\
+        mehcached_table_init(main_table, TABLE_BUCKET_NUMS, 1, TABLE_POOL_SIZE, false, false, false,\
              numa_nodes[0], numa_nodes, MEHCACHED_MTH_THRESHOLD_FIFO);
         Assert(main_table);
     }
 
     // 主节点初始化远端hash表，镜像节点初始化自己本地的hash表
     //mehcached_node_init();
-	if (IS_MAIN(server_instance->server_type))
+	if (IS_MAIN())
     {
 		MID_LOG("Node [%d] do MAIN node init work", server_instance->server_id);
         // 向所有副本节点发送 main_table 初始化请求
@@ -469,15 +480,9 @@ int main()
         // 启动网卡线程
         pthread_create(&nic_thread, NULL, *main_node_nic_thread_ptr, NULL);
 		INFO_LOG("---------------------------MAIN node init finished!------------------------------");
-        
-        // 主节点启动测试程序
-        struct test_kv * kvs = generate_test_data(0, sizeof(size_t));
-        test_set(kvs, 0);
-        test_set(kvs, 100);
-        test_set(kvs, 1000);
     }
 
-	if (IS_MIRROR(server_instance->server_type))
+	if (IS_MIRROR())
 	{
 		// 镜像节点只需要负责初始化自己的hash表即可，不需要知道副本节点的存储地址
 		MID_LOG("Node [%d] is mirror node, don't do any init work", server_instance->server_id);
@@ -485,7 +490,7 @@ int main()
 	}
 
     // 存在下游节点的副本节点向下游节点发送初始化请求
-	if(IS_REPLICA(server_instance->server_type))
+	if(IS_REPLICA())
     {
         // 各个副本节点使用 主线程 检查是否已经和 主节点，上游节点 建立连接
         // 副本节点是 server ， 主节点和上游节点是 client
@@ -494,7 +499,7 @@ int main()
         int active_connection = 0;
         size_t up_node;
     
-        if (!IS_TAIL(server_instance->server_type))
+        if (!IS_TAIL())
         {
             if (server_instance->node_nums > 3)
             {
@@ -557,6 +562,20 @@ int main()
         // 在 replica_is_ready 为真之前副本节点不会接受其他节点发送来的 set, get , update 双边操作
         replica_is_ready = true;
         INFO_LOG("---------------------------Replica Node [%d] init finished!---------------------------", server_instance->server_id);
+    }
+
+    if (IS_CLIENT())
+    {
+        // 客户端节点启动测试程序
+        // 中间件和链式结构下，主节点是客户端节点
+        // 星型结构下，都是客户端节点
+        int i = 0;
+        struct test_kv * kvs[VALUE_SIZES_NUMS];
+        for (i=0; i<VALUE_SIZES_NUMS; i++)
+            kvs[i] = generate_test_data(TEST_VALUE_SIZE[i]);
+
+        for (i=0; i<VALUE_SIZES_NUMS; i++)
+            test_set(kvs[i]);
     }
 
     pthread_join(server_instance->ctx.epoll_thread, NULL);

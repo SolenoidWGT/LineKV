@@ -157,7 +157,7 @@ struct dhmp_client *  dhmp_client_init(size_t buffer_size)
 	memset(client_mgr->connect_trans, 0, DHMP_SERVER_NODE_NUM*
 										sizeof(struct dhmp_transport*));
 	
-	if(IS_MAIN(server_instance->server_type))
+	if(IS_MAIN())
 	{
 		// 头节点需要主动和所有的node建立rdma连接，所有的node都是头节点的server
 		for(i=0; i<client_mgr->config.nets_cnt; i++)
@@ -185,7 +185,7 @@ struct dhmp_client *  dhmp_client_init(size_t buffer_size)
 
 
 	// 排除集群中只有一个副本节点的情况
-	if(IS_REPLICA(server_instance->server_type) && 
+	if(IS_REPLICA() && 
 			server_instance->node_nums > 3 &&
 			server_instance->server_id != server_instance->node_nums-1)
 	{
@@ -224,6 +224,8 @@ struct dhmp_server * dhmp_server_init()
 	uint16_t port_num, phys_port_cnt;
 	int re;
 
+	init_cpu_set_map();
+
 	memset((void*)used_id, -1, sizeof(int) * MAX_PORT_NUMS);
 	server_instance=(struct dhmp_server *)malloc(sizeof(struct dhmp_server));
 	if(!server_instance)
@@ -231,6 +233,7 @@ struct dhmp_server * dhmp_server_init()
 		ERROR_LOG("allocate memory error.");
 		return NULL;
 	}
+	memset(server_instance, 0 , sizeof(struct dhmp_server));
 
 	dhmp_hash_init();
 	dhmp_config_init(&server_instance->config, false);
@@ -276,19 +279,30 @@ struct dhmp_server * dhmp_server_init()
 			}
 
 			if (server_instance->server_id == 0)
-				SET_MAIN(server_instance->server_type);
+			{
+				SET_MAIN();
+				INFO_LOG("+++++++++++++++++++++++++++++++ Main Node !!!! ++++++++++++++++++++++++++++++++++++++++++");
+			}
 			else if (server_instance->server_id == 1)
-				SET_MIRROR(server_instance->server_type);
+				SET_MIRROR();
 			else
-				SET_REPLICA(server_instance->server_type);
+				SET_REPLICA();
 			
 			// 尾节点单独 set 标志位
 			if (server_instance->server_id == server_instance->node_nums - 1)
-				SET_TAIL(server_instance->server_type);
+				SET_TAIL();
 			
 			// 非主节点的头副本节点
 			if (server_instance->server_id == 2)
-				SET_HEAD(server_instance->server_type);
+				SET_HEAD();
+			
+
+#ifdef  ONLY_MAIN_NODE_W
+			if (IS_MAIN())
+				SET_CLIENT();
+#elif defined(ALL_NODE_W) 
+			SET_CLIENT();
+#endif
 
 			MID_LOG("Server's node id is [%d], node_nums is [%d], server_type is %d", \
 					server_instance->server_id, server_instance->node_nums, server_instance->server_type);

@@ -50,24 +50,33 @@ enum dhmp_node_class {
 	MIRROR,
 	REPLICA,
 	HEAD,
-	TAIL
+	TAIL,
+
+	CLIENT
 };
 
-#define IS_MAIN(type)    (type & (1 << MAIN) )
-#define IS_MIRROR(type)  (type & (1 << MIRROR) )
-#define IS_REPLICA(type) (type & (1 << REPLICA) )
+
+#define ONLY_MAIN_NODE_W	
+// #define ALL_NODE_W
+
+#define IS_MAIN()    (server_instance->server_type & (uint8_t)(1 << MAIN) )
+#define IS_MIRROR()  (server_instance->server_type & (uint8_t)(1 << MIRROR) )
+#define IS_REPLICA() (server_instance->server_type & (uint8_t)(1 << REPLICA) )
 // head 是副本节点中的头节点（因为严格意义上来说主节点是头节点）
-#define IS_HEAD(type) (type & (1 << HEAD) )
+#define IS_HEAD() 	 (server_instance->server_type & (uint8_t)(1 << HEAD) )
 // #define IS_MIDDLE(type) (type & (1 << MIDDLE) )
-#define IS_TAIL(type) (type & (1 << TAIL) )
+#define IS_TAIL() 	 (server_instance->server_type & (uint8_t)(1 << TAIL) )
 
-#define SET_MAIN(type) 	  ( type = (type | (1 << MAIN)   ) )
-#define SET_MIRROR(type)  ( type = (type | (1 << MIRROR) ) )
-#define SET_REPLICA(type) ( type = (type | (1 << REPLICA) ) )
-#define SET_HEAD(type)   ( type = (type | (1 << HEAD)   ) )
+#define IS_CLIENT()  (server_instance->server_type & (uint8_t)(1 << CLIENT) )
+
+#define SET_MAIN() 	  ( server_instance->server_type = (server_instance->server_type | (uint8_t)(1 << MAIN)   ) )
+#define SET_MIRROR()  ( server_instance->server_type = (server_instance->server_type | (uint8_t)(1 << MIRROR) ) )
+#define SET_REPLICA() ( server_instance->server_type = (server_instance->server_type | (uint8_t)(1 << REPLICA) ) )
+#define SET_HEAD()    ( server_instance->server_type = (server_instance->server_type | (uint8_t)(1 << HEAD)   ) )
 // #define SET_MIDDLE(type) ( type = (type | (1 << MIDDLE) ) )
-#define SET_TAIL(type)   ( type = (type | (1 << TAIL)   ) )
+#define SET_TAIL()     ( server_instance->server_type = (server_instance->server_type | (uint8_t)(1 << TAIL)   ) )
 
+#define SET_CLIENT()   ( server_instance->server_type = (server_instance->server_type | (uint8_t)(1 << CLIENT)   ) )
 
 enum dhmp_msg_type{
 	// DHMP_MSG_MALLOC_REQUEST,
@@ -253,7 +262,7 @@ struct set_requset_pack
 	struct dhmp_mica_set_request * req_info_ptr;
 };
 
-#define MICA_DEFAULT_VALUE_LEN (1024)
+#define MICA_DEFAULT_VALUE_LEN (1024*1024)
 struct dhmp_mica_get_request
 {
 	uint8_t current_alloc_id;
@@ -263,12 +272,15 @@ struct dhmp_mica_get_request
 	struct dhmp_mica_get_response * get_resp;
 	uint8_t data[0];		//返回值是 dhmp_mica_get_response
 };
+
 struct dhmp_mica_get_response
 {
-	size_t 	 out_value_length; 	// 返回值
-	uint32_t out_expire_time;	// 返回值
-	bool	 partial;			// 返回值
-	uint8_t  out_value[0];		// 返回值
+	size_t 	 out_value_length; 	// 返回值  8 B
+	bool	 partial;			// 返回值  1 B + 3B(padding)
+	uint32_t out_expire_time;	// 返回值  4 B
+
+	// uint8_t  out_value[MICA_DEFAULT_VALUE_LEN];		// 返回值
+	uint8_t  out_value[0];	
 };
 struct dhmp_write_request
 {
@@ -344,6 +356,7 @@ struct test_kv
 	uint8_t * value;
 	size_t true_key_length;
 	size_t true_value_length;
+	uint8_t   value_checksum;
 	struct mehcached_item * item;	// 如果有
 };
 
@@ -352,4 +365,12 @@ void dump_value_by_addr(const uint8_t * value, size_t value_length);
 // TODO : logtable 的垃圾回收
 // TODO : 去掉 #define MICA_DEFAULT_VALUE_LEN (1024)
 // TODO : 边长 key 插入， header ,tail 元数据的迁移
+
+
+#define ONE_LOOP_TIMER
+#define PARTITION_NUM 16
+#define PARTITION_ID(key_hash) ((uint16_t) (uint16_t)(key_hash >> 48) & (uint16_t)( PARTITION_NUM - 1))
+#define TABLE_POOL_SIZE 1024*1024*1024*1
+#define TABLE_BUCKET_NUMS 64
+
 #endif

@@ -505,7 +505,7 @@ mehcached_set_item(struct mehcached_item *item, uint64_t key_hash, const uint8_t
 
     if ( (void*)value == (void*)0x1)
     {
-        if (!IS_REPLICA(server_instance->server_type))
+        if (!IS_REPLICA())
         {
             ERROR_LOG("mehcached_set_item do update, check wheater value' length is changed by update!, exit!");
             exit(-1);
@@ -529,7 +529,7 @@ mehcached_set_item(struct mehcached_item *item, uint64_t key_hash, const uint8_t
         value_header->version = 1;
         value_header->value_count = 1;  
 
-        if (IS_REPLICA(server_instance->server_type))
+        if (IS_REPLICA())
         {
             value_tail->version = (uint64_t) -1;
             value_tail->dirty = true;
@@ -586,7 +586,7 @@ mehcached_set_item_value(struct mehcached_item *item, const uint8_t *value, uint
     {
         key_tail->version++;
         key_tail->key_count++;   
-        if (!IS_REPLICA(server_instance->server_type))
+        if (!IS_REPLICA())
         {
             // 更新本地hash表的value和下游节点的value
             value_header->version ++;
@@ -864,7 +864,7 @@ mehcached_get(uint8_t current_alloc_id MEHCACHED_UNUSED, struct mehcached_table 
         struct mehcached_item *item = (struct mehcached_item *)mehcached_dynamic_item(&table->alloc, item_offset);
 #endif
         // 比较 maintable 和 logtable 谁的version更新
-        if (IS_MAIN(server_instance->server_type))
+        if (IS_MAIN())
         {
             // 在 get 的时候我们永远 get 最新的
             if (!is_main_table_latest(item, key_hash, key, key_length))
@@ -888,8 +888,8 @@ mehcached_get(uint8_t current_alloc_id MEHCACHED_UNUSED, struct mehcached_table 
         
         Assert(value_length <= MICA_DEFAULT_VALUE_LEN);
         // 只有副本节点需要等待版本号一致
-        if ( !IS_MAIN(server_instance->server_type) && 
-             !IS_MIRROR(server_instance->server_type) &&
+        if ( !IS_MAIN() && 
+             !IS_MIRROR() &&
             check_version_is_same(item, value_length, MEHCACHED_ROUNDUP8(key_length)) == false)
         {
             ERROR_LOG("version is not equal, need peer node retry");
@@ -1214,7 +1214,7 @@ mehcached_set(uint8_t current_alloc_id, struct mehcached_table *table, uint64_t 
                 // 只有这种情况的 update 可以进入到 log_table 的写入逻辑！
                 if (item->alloc_item.item_size >= new_item_size)
                 {
-                    if (IS_MAIN(server_instance->server_type) && table != log_table)
+                    if (IS_MAIN() && table != log_table)
                     {
                         if (is_main_table_latest(item, key_hash, key, key_length))
                         {
@@ -1817,7 +1817,7 @@ check_version_is_same(struct mehcached_item *item, size_t value_length, size_t a
 static void
 synchronize_logtable_maintable(struct mehcached_item *main_item, struct mehcached_item *log_item)
 {
-    Assert(IS_MAIN(server_instance->server_type) || IS_MIRROR(server_instance->server_type));
+    Assert(IS_MAIN() || IS_MIRROR());
     uint64_t * main_key_v, * main_key_c, * main_value_h_v, * main_value_t_v, * main_value_count;
     uint64_t * log_key_v, * log_key_c, * log_value_h_v, * log_value_t_v, * log_value_count;
 
