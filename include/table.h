@@ -367,5 +367,9 @@ void value_get_true_value(uint8_t*true_value, uint8_t* value, size_t value_lengt
 #define GET_TRUE_VALUE_ADDR(value) ( (uint8_t*)value +  VALUE_HEADER_LEN)
 #define GET_TRUE_VALUE_LEN(value_length) (value_length - VALUE_HEADER_LEN - VALUE_TAIL_LEN)
 #define GET_TRUE_KEY_LEN(key_length) (key_length - KEY_HEADER_LEN)
+
+extern struct mehcached_table *main_table;
+extern struct mehcached_table *log_table;
+
 MEHCACHED_END
 

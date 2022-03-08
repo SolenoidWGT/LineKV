@@ -253,7 +253,7 @@ struct set_requset_pack
 	struct dhmp_mica_set_request * req_info_ptr;
 };
 
-#define MICA_DEFAULT_VALUE_LEN (1024)
+#define MICA_DEFAULT_VALUE_LEN (1024 * 1024)
 struct dhmp_mica_get_request
 {
 	uint8_t current_alloc_id;
@@ -352,4 +352,8 @@ void dump_value_by_addr(const uint8_t * value, size_t value_length);
 // TODO : logtable 的垃圾回收
 // TODO : 去掉 #define MICA_DEFAULT_VALUE_LEN (1024)
 // TODO : 边长 key 插入， header ,tail 元数据的迁移
+
+#define TABLE_POOL_SIZE 1024*1024*1024*1
+#define TABLE_BUCKET_NUMS 64
+
 #endif

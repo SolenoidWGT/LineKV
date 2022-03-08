@@ -23,6 +23,13 @@
 #include "dhmp_server.h"
 MEHCACHED_BEGIN
 
+
+struct mehcached_table table_o;
+struct mehcached_table main_node_log_table_o;
+
+struct mehcached_table *main_table = &table_o;
+struct mehcached_table *log_table = &main_node_log_table_o;
+
 // a test feature to deduplicate PUT requests within the same batch
 //#define MEHCACHED_DEDUP_WITHIN_BATCH
 
@@ -31,7 +38,7 @@ MEHCACHED_BEGIN
 // table_is_inited 被 volatile 修饰后所有对该变量的访问都是访问内存，会影响性能
 // 所以使用 memory_barrier 在具体场景进行写回时更好的选择。
 static bool table_is_inited = false;
-struct mehcached_table table_o;
+
 static bool check_version_is_same(struct mehcached_item *item, size_t value_length, size_t key_length);
 static bool is_main_table_latest(struct mehcached_item * main_item, uint64_t key_hash, const uint8_t* key, size_t key_length);
 static void get_item_all(struct mehcached_item *item, 
@@ -483,14 +490,16 @@ mehcached_set_item(struct mehcached_item *item, uint64_t key_hash, const uint8_t
 
     // uint8_t* base = item->data;         
     uint8_t* key_data;
-    struct midd_key_tail* key_base;
+    // struct midd_key_tail* key_base;
+    struct midd_key_tail  * key_tail;
 
     struct midd_value_header* value_header;
     uint8_t* value_data;
     struct midd_value_tail* value_tail;
 
     key_data   = item->data;
-    key_base   = (struct midd_key_tail*) item->data + KEY_HEADER_LEN;
+    // bug ，必须要加括号！！！！
+    key_tail   = (struct midd_key_tail*)(item->data + true_key_len);
     value_header = (struct midd_value_header*)(item->data + MEHCACHED_ROUNDUP8(key_length));
     value_data = VALUE_START_ADDR(item->data, MEHCACHED_ROUNDUP8(key_length));
     value_tail = (struct midd_value_tail*) VALUE_TAIL_ADDR(item->data , MEHCACHED_ROUNDUP8(key_length), true_value_len);
@@ -522,8 +531,8 @@ mehcached_set_item(struct mehcached_item *item, uint64_t key_hash, const uint8_t
     else
     {
         // set 操作，初始化 version 为 1
-        key_base->version = 1;
-        key_base->key_count = 1;
+        key_tail->version = 1;
+        key_tail->key_count = 1;
 
         // 更新 value 的头部
         value_header->version = 1;
@@ -559,7 +568,6 @@ mehcached_set_item_value(struct mehcached_item *item, const uint8_t *value, uint
     uint32_t key_length = MEHCACHED_KEY_LENGTH(item->kv_length_vec);
     size_t new_true_value_len = value_length - VALUE_HEADER_LEN - VALUE_TAIL_LEN;
     size_t true_key_len = GET_TRUE_KEY_LEN(key_length);
-    
 
     struct midd_key_tail  * key_tail;
     struct midd_value_header* value_header;
@@ -867,12 +875,17 @@ mehcached_get(uint8_t current_alloc_id MEHCACHED_UNUSED, struct mehcached_table 
         if (IS_MAIN(server_instance->server_type))
         {
             // 在 get 的时候我们永远 get 最新的
-            if (!is_main_table_latest(item, key_hash, key, key_length))
+            if (table == main_table)
             {
-                INFO_LOG("**Log table has latest data, get from log table!**");
-                return mehcached_get(current_alloc_id, log_table, key_hash, key, \
-                                        key_length, out_value, in_out_value_length, \
-                                        out_expire_time, readonly, get_true_value);
+                if (!is_main_table_latest(item, key_hash, key, key_length))
+                {
+                    INFO_LOG("*****Log table has latest data, get from log table!*****");
+                    return mehcached_get(current_alloc_id, log_table, key_hash, key, \
+                                            key_length, out_value, in_out_value_length, \
+                                            out_expire_time, readonly, get_true_value);
+                }
+                else
+                    INFO_LOG("*****Main table has latest data, get from Main table!*****");
             }
         }
 
@@ -922,6 +935,7 @@ mehcached_get(uint8_t current_alloc_id MEHCACHED_UNUSED, struct mehcached_table 
             {
                 partial_value = true;
                 value_length = *in_out_value_length;
+                Assert(false);
             }
             else
                 partial_value = false;
@@ -934,6 +948,7 @@ mehcached_get(uint8_t current_alloc_id MEHCACHED_UNUSED, struct mehcached_table 
             {
                 partial_value = true;
                 value_length = *in_out_value_length;
+                Assert(false);
             }
             else
                 partial_value = false;
@@ -1279,14 +1294,14 @@ mehcached_set(uint8_t current_alloc_id, struct mehcached_table *table, uint64_t 
         return NULL;
     }
     struct mehcached_item *new_item = (struct mehcached_item *)mehcached_dynamic_item(&table->alloc, new_item_offset);
-    new_item->mapping_id = table->alloc.mapping_id;
-    new_item->remote_value_addr = (uintptr_t )(new_item->data + MEHCACHED_ROUNDUP8(MEHCACHED_KEY_LENGTH(new_item->kv_length_vec)));
     INFO_LOG("memcached_set mapping id is %u", table->alloc.mapping_id);
 #endif
 
     MEHCACHED_STAT_INC(table, set_new);
 
     mehcached_set_item(new_item, key_hash, key, (uint32_t)key_length, value, (uint32_t)value_length, expire_time, main_item);
+    new_item->mapping_id = table->alloc.mapping_id;
+    new_item->remote_value_addr = (uintptr_t )(new_item->data + MEHCACHED_ROUNDUP8(MEHCACHED_KEY_LENGTH(new_item->kv_length_vec)));
 #ifdef MEHCACHED_ALLOC_POOL
     // unlocking is delayed until we finish writing data at the new location;
     // otherwise, the new location may be invalidated (in a very rare case)
@@ -1931,11 +1946,17 @@ is_main_table_latest(struct mehcached_item * main_item, uint64_t key_hash, const
     {
         uint64_t *log_version = get_item_value_tail_version(log_item);
         uint64_t *main_version = get_item_value_tail_version(main_item);
-        return *log_version <= *main_version;
+        INFO_LOG("**log_version is %d, main_version is %d", *log_version ,*main_version);
+        // 最新的 version 永远保存在 main_version 中， 如果 main_version == log_version， 说明 logtable 里面的数据新
+        // main_version > log_version 说明 maintable 更新
+        // main_version 不可能小于 log_version
+        return *log_version < *main_version;
     }
     else
+    {
+        INFO_LOG("**log item is NULL");
         return true;
-    
+    }
     // return log_item;
 }
 

@@ -20,6 +20,7 @@
 #include <assert.h>
 
 #include <stdlib.h>
+#include <stdio.h>
 #include <string.h>
 
 #include <sys/time.h>
@@ -64,7 +65,12 @@ static
 void
 mehcached_memcpy8(uint8_t *dest, const uint8_t *src, size_t length)
 {
-    length = MEHCACHED_ROUNDUP8(length);    // 让 length 和 8B 对齐
+    size_t __length = MEHCACHED_ROUNDUP8(length);    // 让 length 和 8B 对齐
+    if (__length != length)
+    {
+        printf("ERROR! __length [%u] != length [%u]\n", __length, length);
+    }
+    // Assert(__length != length);
 #ifndef USE_DPDK
     switch (length >> 3)
     {

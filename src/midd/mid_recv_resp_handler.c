@@ -48,7 +48,7 @@ dhmp_mica_get_cli_MR_request_handler(struct dhmp_transport* rdma_trans,
 			size_t numa_nodes[] = {(size_t)-1};
 
 			// 初始化 hash table 并注册内存
-			mehcached_table_init(table, 1, 1, 256, false, false, false, \
+			mehcached_table_init(table, TABLE_BUCKET_NUMS, 1, TABLE_POOL_SIZE, false, false, false, \
 								numa_nodes[0], numa_nodes, MEHCACHED_MTH_THRESHOLD_FIFO);
 			Assert(table);
 
