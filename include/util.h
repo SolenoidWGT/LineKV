@@ -68,7 +68,7 @@ mehcached_memcpy8(uint8_t *dest, const uint8_t *src, size_t length)
     size_t __length = MEHCACHED_ROUNDUP8(length);    // 让 length 和 8B 对齐
     if (__length != length)
     {
-        printf("ERROR! __length [%u] != length [%u]\n", __length, length);
+        printf("ERROR! __length [%lu] != length [%lu]\n", __length, length);
     }
     // Assert(__length != length);
 #ifndef USE_DPDK

@@ -249,10 +249,15 @@ void dhmp_set_curnode_id ( struct dhmp_config* config_ptr)
 
 int dhmp_config_init ( struct dhmp_config* config_ptr, bool is_client )
 {
-	const char* config_file=DHMP_CONFIG_FILE_NAME;
+	const char* config_file;
 	int index=0;
 	xmlDocPtr config_doc;
 	xmlNodePtr curnode;
+
+	if (is_client )
+		config_file=DHMP_CLIENT_CONFIG_FILE_NAME;
+	else
+		config_file=DHMP_CONFIG_FILE_NAME;
 
 	config_doc=xmlParseFile ( config_file );
 	if ( !config_doc )

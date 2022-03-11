@@ -13,6 +13,8 @@
 #include "alloc_dynamic.h"
 #include "nic.h"
 
+
+#include "dhmp_top_api.h"
 static struct dhmp_msg * make_basic_msg(struct dhmp_msg * res_msg, struct post_datagram *resp);
 
 static struct post_datagram * 
@@ -221,7 +223,8 @@ dhmp_mica_set_request_handler(struct post_datagram *req)
 	req_info  = (struct dhmp_mica_set_request *) DATA_ADDR(req, 0);
 	key_addr = (void*)req_info->data;	
 
-	Assert(!IS_MAIN(server_instance->server_type));
+	// mica客户端节点向主节点发送请求也会调用这个函数
+	// Assert(!IS_MAIN(server_instance->server_type));
 	// 不管是 insert 还是 update 副本节点都需要等待上游网卡节点传送数据
 	if (IS_REPLICA(server_instance->server_type))
 		value_addr = (void*) 0x1;
@@ -231,7 +234,8 @@ dhmp_mica_set_request_handler(struct post_datagram *req)
 	// 该节点的 mapping 信息和 mr 信息
 	// 回传key（为了上游节点确定item，仅靠key_hash是不够的）
 	if (!IS_HEAD(server_instance->server_type) &&
-		!IS_MIRROR(server_instance->server_type))
+		!IS_MIRROR(server_instance->server_type) &&
+		!IS_MAIN(server_instance->server_type))
 		resp_len += req_info->key_length;	
 
 	resp = (struct post_datagram *) malloc(DATAGRAM_ALL_LEN(resp_len));
@@ -252,13 +256,14 @@ dhmp_mica_set_request_handler(struct post_datagram *req)
 						&is_update,
 						&is_maintable,
 						NULL);
-
+	
 	// Assert(is_update == req_info->is_update);
 	if (IS_REPLICA(server_instance->server_type))
 		Assert(is_maintable == true);
 
 	if (item != NULL)
 	{
+		// 从item中获取的value地址是包括value元数据的
 		set_result->value_addr = (uintptr_t ) item_get_value_addr(item);
 		set_result->out_mapping_id = item->mapping_id;
 		set_result->is_success = true;
@@ -274,16 +279,46 @@ dhmp_mica_set_request_handler(struct post_datagram *req)
 		Assert(false);
 	}
 
-	// 拷贝 key 和 key 的长度
+	if (IS_MAIN(server_instance->server_type))
+	{
+		// void 
+		// main_node_broadcast_matedata(struct dhmp_mica_set_request  * req_info, 
+		// 							struct mehcached_item * item, void * key_addr, uint64_t key_hash,  
+		// 							void * value_addr, bool is_update, bool is_maintable)
+		// 现在有一个问题需要确定，传递过来的 key 和 value 应该是不携带元数据的，但是此时 key 和 value 的长度已经加上了元数据的长度
+		size_t item_offset;
+		main_node_broadcast_matedata(req_info,
+									item,
+									key_addr,
+									value_addr,
+									is_update,
+									is_maintable);
+		
+		if (is_maintable)
+			item_offset = get_offset_by_item(main_table, item);
+		else
+			item_offset = get_offset_by_item(log_table, item);
+
+		// 只写直接下游节点
+		// 还需要返回远端 value 的虚拟地址， 用来求偏移量
+		makeup_update_request(item, item_offset,\
+								(uint8_t*)item_get_value_addr(item), \
+								MEHCACHED_VALUE_LENGTH(item->kv_length_vec));
+
+		INFO_LOG("Main Node: key hash [%lx] notices downstream replica node!", req_info->key_hash); 
+	}
+
+	// 拷贝 key 和 key 的长度,用于链中节点向上游节点发送消息
 	if (!IS_HEAD(server_instance->server_type) &&
-		!IS_MIRROR(server_instance->server_type))
+		!IS_MIRROR(server_instance->server_type) &&
+		!IS_MAIN(server_instance->server_type))
 	{
 		memcpy(set_result->key_data, key_addr, req_info->key_length);
 		set_result->key_length = req_info->key_length;
 		set_result->key_hash = req_info->key_hash;
 	}
 
-	INFO_LOG("key_hash is %lx, len is %lu, addr is %p ", set_result->key_hash, set_result->key_length, key_addr);
+	INFO_LOG("key_hash is %lx, len is %lu, addr is %p ", req_info->key_hash, req_info->key_length, key_addr);
 
 	// 填充 response 报文
 	resp->req_ptr  = req->req_ptr;		    		// 原样返回对方用于消息完成时的报文的判别
@@ -296,7 +331,8 @@ dhmp_mica_set_request_handler(struct post_datagram *req)
 	// 各副本节点（除了主节点直接负责的副本节点）还需要向各自的直接上游
 	// 节点发送自己的新分配的 item 的 mappingID 和虚拟地址
 	if (!IS_HEAD(server_instance->server_type) &&
-		!IS_MIRROR(server_instance->server_type))
+		!IS_MIRROR(server_instance->server_type) &&
+		!IS_MAIN(server_instance->server_type) )
 	{
 		// 发送给上游节点，我们是被动建立连接的一方，是服务端
 		dhmp_post_send(find_connect_client_by_nodeID(server_instance->server_id - 1),\
@@ -312,16 +348,13 @@ dhmp_set_response_handler(struct dhmp_msg* msg)
 	struct post_datagram *resp = (struct post_datagram *) (msg->data); 
 	struct dhmp_mica_set_response *resp_info = \
 			(struct dhmp_mica_set_response *) DATA_ADDR(resp, 0);
+	struct post_datagram *req = resp->req_ptr; 
+	struct dhmp_mica_set_request *req_info = \
+			(struct dhmp_mica_set_request *) DATA_ADDR(req, 0);
 
-	if (IS_REPLICA(server_instance->server_type))
-		Assert(replica_is_ready == true);
-
-	if (IS_MAIN(server_instance->server_type))
+	if (server_instance == NULL ||
+		IS_MAIN(server_instance->server_type))
 	{
-		struct post_datagram *req = resp->req_ptr; 
-		struct dhmp_mica_set_request *req_info = \
-				(struct dhmp_mica_set_request *) DATA_ADDR(req, 0);
-
 		req_info->out_mapping_id = resp_info->out_mapping_id;
 		req_info->out_value_addr = resp_info->value_addr;
 		req_info->is_success = resp_info->is_success;		// 新增的成功标识位，如果失败需要重试
@@ -329,33 +362,40 @@ dhmp_set_response_handler(struct dhmp_msg* msg)
 		resp->req_ptr->done_flag = true;
 
 		INFO_LOG("Node [%d] set key_hash [%lx] to node[%d]!, is success!", \
-				server_instance->server_id, req_info->key_hash, resp->node_id);
+				server_instance!=NULL ? server_instance->server_id : client_mgr->self_node_id, req_info->key_hash, resp->node_id);
 	}
-	else	// 上游节点（副本节点执行下面的逻辑）
-	{ 
-		// 由于上游副本节点没有发布 dhmp_mica_set_request， 所以 resp->req_ptr 指针
-		// 没有意义，不要去试图访问 req_ptr 指针
-		uint64_t key_hash = resp_info->key_hash;
-		size_t key_length = resp_info->key_length;
-		uint8_t * key_addr = (uint8_t*)resp_info->key_data;
-		struct mehcached_item * target_item;
-		struct mehcached_table *table = &table_o; // 副本节点只有一个 table
+	else
+	{
+		if (IS_REPLICA(server_instance->server_type))
+			Assert(replica_is_ready == true);
 
-		// 这个时刻一定要保证 hash 表已经初始化完成了
-		// 根据 key_hash 查表，将下游节点的 out_mapping_id 和 out_value_addr 赋值
-		// 有可能下游节点已经向上游节点返回set信息，但是主节点的set信息元数据还没有到达，因此需要while等待
-		INFO_LOG("key_hash is %lx, len is %lu, addr is %p ", key_hash, key_length, key_addr);
-		while (true)
+		// 上游节点（副本节点执行下面的逻辑）
+		if (!IS_MAIN(server_instance->server_type))	
 		{
-			target_item = find_item(table, key_hash , key_addr, key_length);
-			if (target_item != NULL)
-				break;
-		}
+			// 由于上游副本节点没有发布 dhmp_mica_set_request， 所以 resp->req_ptr 指针
+			// 没有意义，不要去试图访问 req_ptr 指针
+			uint64_t key_hash = resp_info->key_hash;
+			size_t key_length = resp_info->key_length;
+			uint8_t * key_addr = (uint8_t*)resp_info->key_data;
+			struct mehcached_item * target_item;
+			struct mehcached_table *table = &table_o; // 副本节点只有一个 table
 
-		target_item->mapping_id = resp_info->out_mapping_id;
-		target_item->remote_value_addr = resp_info->value_addr;
-		INFO_LOG("Node [%d] recv downstram node's key_hash \"[%lx]\"'s virtual addr info is %p", \
-						server_instance->server_id, resp_info->key_hash, target_item->remote_value_addr);
+			// 这个时刻一定要保证 hash 表已经初始化完成了
+			// 根据 key_hash 查表，将下游节点的 out_mapping_id 和 out_value_addr 赋值
+			// 有可能下游节点已经向上游节点返回set信息，但是主节点的set信息元数据还没有到达，因此需要while等待
+			INFO_LOG("key_hash is %lx, len is %lu, addr is %p ", key_hash, key_length, key_addr);
+			while (true)
+			{
+				target_item = find_item(table, key_hash , key_addr, key_length);
+				if (target_item != NULL)
+					break;
+			}
+
+			target_item->mapping_id = resp_info->out_mapping_id;
+			target_item->remote_value_addr = resp_info->value_addr;
+			INFO_LOG("Node [%d] recv downstram node's key_hash \"[%lx]\"'s virtual addr info is %p", \
+							server_instance->server_id, resp_info->key_hash, target_item->remote_value_addr);
+		}
 	}
 }
 
@@ -452,15 +492,16 @@ dhmp_get_response_handler(struct dhmp_msg* msg)
 
 	if (resp_info->out_value_length != (size_t) -1)
 	{
-		void * value_addr =  (void*)&resp_info->out_value[0];
-		memcpy(&get_re_info->out_value[0], value_addr, resp_info->out_value_length );
-		INFO_LOG("Node [%d] GET key_hash [%lx] to node[%d]!, is success!", \
-					server_instance->server_id, req_info->key_hash, resp->node_id);
+		void * value_addr =  (void*)(resp_info->out_value);
+		memcpy((void*)(get_re_info->out_value), value_addr, resp_info->out_value_length );
+	
+		INFO_LOG("Node [%d] GET key_hash [%lx] to node[%d]!, is success!, value(int) is [%d]", \
+			server_instance!=NULL ? server_instance->server_id : client_mgr->self_node_id, req_info->key_hash, resp->node_id, *(int*)value_addr);
 	}
 	else
 	{
 		ERROR_LOG("Node [%d] GET key_hash [%lx] to node[%d]!, is FAILED!", \
-				server_instance->server_id, req_info->key_hash, resp->node_id);
+			server_instance!=NULL ? server_instance->server_id : client_mgr->self_node_id, req_info->key_hash, resp->node_id);
 	}
 
 	resp->req_ptr->done_flag = true;
@@ -559,10 +600,15 @@ static void dhmp_send_request_handler(struct dhmp_transport* rdma_trans,
 											struct dhmp_msg* msg)
 {
 	struct dhmp_msg res_msg;
-	struct dhmp_device * dev = dhmp_get_dev_from_server();
+	struct dhmp_device * dev;
 	struct post_datagram *req;
 	struct post_datagram *resp;
 	req = (struct post_datagram*)msg->data;
+
+	if (server_instance == NULL)
+		dev = dhmp_get_dev_from_client();
+	else
+		dev = dhmp_get_dev_from_server();
 
 	switch (req->info_type)
 	{
@@ -684,4 +730,70 @@ make_basic_msg(struct dhmp_msg * res_msg, struct post_datagram *resp)
 	res_msg->data_size = DATAGRAM_ALL_LEN(resp->info_length);
 	res_msg->data= resp;
 	return res_msg;
+}
+
+
+	// item = mehcached_set(req_info->current_alloc_id,
+	// 					table,
+	// 					req_info->key_hash,
+	// 					key_addr,
+	// 					req_info->key_length,
+	// 					value_addr,
+	// 					req_info->value_length,
+	// 					req_info->expire_time,
+	// 					req_info->overwrite,
+	// 					&is_update,
+	// 					&is_maintable,
+	// 					NULL);
+
+
+void 
+main_node_broadcast_matedata(struct dhmp_mica_set_request  * req_info, 
+							  struct mehcached_item * item, void * key_addr, 
+							  void * value_addr, bool is_update, bool is_maintable)
+{
+    int nid;
+	struct set_requset_pack req_callback_ptr[10];	// 默认不超过10个节点
+
+    // 镜像节点全value赋值
+	// 我们这里也不使用 warpper 函数，因为已经加上了元数据的长度
+    for (nid = MIRROR_NODE_ID; nid <= REPLICA_NODE_TAIL_ID; nid++)
+    {
+		mica_set_remote(req_info->current_alloc_id, req_info->key_hash, 
+						key_addr, 
+						req_info->key_length, 
+						value_addr, 
+						req_info->value_length,
+						0, true, true, 
+						&req_callback_ptr[nid], 
+						nid, 
+						is_update, 
+						server_instance->server_id);
+    }
+
+    for (nid = MIRROR_NODE_ID; nid <= REPLICA_NODE_TAIL_ID; nid++)
+    {
+        while(req_callback_ptr[nid].req_ptr->done_flag == false);
+
+        if (req_callback_ptr[nid].req_info_ptr->out_mapping_id == (size_t)-1)
+        {
+            ERROR_LOG("Main node set node[%d] key_hash [%lx] failed!", nid, req_callback_ptr[nid].req_info_ptr->key_hash);
+            exit(0);
+        }
+        else
+        {
+            // 主节点只需要保存直接下游节点的 mr 信息即可
+            if (nid == REPLICA_NODE_HEAD_ID)
+            {
+                item->mapping_id = req_callback_ptr[nid].req_info_ptr->out_mapping_id;
+                item->remote_value_addr = req_callback_ptr[nid].req_info_ptr->out_value_addr;
+                INFO_LOG("Main node set node[%d] key_hash [%lx] success!, mapping id is %u, remote addr is %p", \
+                                nid, item->key_hash, item->mapping_id, item->remote_value_addr);
+            }
+        }
+
+        // free(req_callback_ptr[nid].req_ptr);
+    }
+
+    INFO_LOG("Main Node, key hash [%lx] set to all replica node success!", req_info->key_hash);
 }

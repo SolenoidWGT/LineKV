@@ -50,23 +50,27 @@ enum dhmp_node_class {
 	MIRROR,
 	REPLICA,
 	HEAD,
-	TAIL
+	TAIL,
+
+	CLIENT
 };
 
-#define IS_MAIN(type)    (type & (1 << MAIN) )
-#define IS_MIRROR(type)  (type & (1 << MIRROR) )
-#define IS_REPLICA(type) (type & (1 << REPLICA) )
+#define IS_MAIN(type)       (type & (1 << MAIN) )
+#define IS_MIRROR(type)     (type & (1 << MIRROR) )
+#define IS_REPLICA(type)    (type & (1 << REPLICA) )
 // head 是副本节点中的头节点（因为严格意义上来说主节点是头节点）
-#define IS_HEAD(type) (type & (1 << HEAD) )
+#define IS_HEAD(type) 		(type & (1 << HEAD) )
 // #define IS_MIDDLE(type) (type & (1 << MIDDLE) )
-#define IS_TAIL(type) (type & (1 << TAIL) )
+#define IS_TAIL(type) 		(type & (1 << TAIL) )
+#define IS_CLIENT(type) 	(type & (1 << CLIENT) )
 
-#define SET_MAIN(type) 	  ( type = (type | (1 << MAIN)   ) )
-#define SET_MIRROR(type)  ( type = (type | (1 << MIRROR) ) )
-#define SET_REPLICA(type) ( type = (type | (1 << REPLICA) ) )
-#define SET_HEAD(type)   ( type = (type | (1 << HEAD)   ) )
+#define SET_MAIN(type) 	   ( type = (type | (1 << MAIN)   ) )
+#define SET_MIRROR(type)   ( type = (type | (1 << MIRROR) ) )
+#define SET_REPLICA(type)  ( type = (type | (1 << REPLICA) ) )
+#define SET_HEAD(type)     ( type = (type | (1 << HEAD)   ) )
 // #define SET_MIDDLE(type) ( type = (type | (1 << MIDDLE) ) )
-#define SET_TAIL(type)   ( type = (type | (1 << TAIL)   ) )
+#define SET_TAIL(type)     ( type = (type | (1 << TAIL)   ) )
+#define SET_CLIENT(type)   ( type = (type | (1 << CLIENT)   ) )
 
 
 enum dhmp_msg_type{
@@ -344,6 +348,7 @@ struct test_kv
 	uint8_t * value;
 	size_t true_key_length;
 	size_t true_value_length;
+	uint64_t key_hash;
 	struct mehcached_item * item;	// 如果有
 };
 
@@ -355,5 +360,10 @@ void dump_value_by_addr(const uint8_t * value, size_t value_length);
 
 #define TABLE_POOL_SIZE 1024*1024*1024*1
 #define TABLE_BUCKET_NUMS 64
+#define INIT_DHMP_CLIENT_BUFF_SIZE 1024*1024*8
 
+void 
+main_node_broadcast_matedata(struct dhmp_mica_set_request  * req_info, 
+							  struct mehcached_item * item, void * key_addr, 
+							  void * value_addr, bool is_update, bool is_maintable);
 #endif

@@ -8,10 +8,19 @@
 #include "dhmp_mica_shm_common.h"
 #include "nic.h"
 #include "util.h"
+
+
 struct list_head nic_send_list;
 static uint64_t nic_sendQ_lock = 0UL;
 static void memory_barrier();
 volatile bool nic_thread_ready = false;
+
+
+struct ibv_mr * 
+mehcached_get_mapping_self_mr(struct replica_mappings * mappings, size_t mapping_id)
+{
+	return &mappings->mrs[mapping_id];
+}
 
 void
 nic_sending_queue_lock()
@@ -74,7 +83,7 @@ makeup_update_request(struct mehcached_item * item, uint64_t item_offset, const 
 
     // 填充 dhmp_write_request 结构体
     up_req->write_info.rdma_trans = find_connect_server_by_nodeID(next_id);
-    up_req->write_info.mr = mehcached_get_mapping_self_mr(item->mapping_id);
+    up_req->write_info.mr = mehcached_get_mapping_self_mr(next_node_mappings, item->mapping_id);
     dump_mr(up_req->write_info.mr);
     up_req->write_info.local_addr = (void*)value;
     up_req->write_info.length = value_length;

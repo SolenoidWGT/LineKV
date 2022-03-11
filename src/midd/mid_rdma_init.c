@@ -13,7 +13,7 @@
 
 struct dhmp_server *server_instance=NULL;
 struct dhmp_client *client_mgr=NULL;
-struct dhmp_device *dhmp_get_dev_from_client();
+size_t CLINET_ID=(size_t)-1;
 static struct dhmp_send_mr * 
 init_read_mr(int buffer_size, struct ibv_pd* pd);
 
@@ -114,7 +114,7 @@ dhmp_connect(int peer_node_id)
 	return conn;
 }
 
-struct dhmp_client *  dhmp_client_init(size_t buffer_size)
+struct dhmp_client *  dhmp_client_init(size_t buffer_size, bool is_mica_cli)
 {
 	int i;
 	int re = 0;
@@ -129,10 +129,17 @@ struct dhmp_client *  dhmp_client_init(size_t buffer_size)
 		return NULL;
 	}
 
-	// dhmp_config_init(&client_mgr->config, true);
-
-	// 我们这里直接使用 server 创建的 config 结构体，而不是自己去初始化
-	memcpy(&client_mgr->config, &server_instance->config, sizeof(struct dhmp_config));
+	if (!is_mica_cli)
+	{
+		// 我们这里直接使用 server 创建的 config 结构体，而不是自己去初始化
+		memcpy(&client_mgr->config, &server_instance->config, sizeof(struct dhmp_config));
+		
+	}
+	else
+	{
+		// 是 mica 客户端则正常初始化
+		dhmp_config_init(&client_mgr->config, true);
+	}
 
 	re = dhmp_context_init(&client_mgr->ctx);
 
@@ -156,51 +163,70 @@ struct dhmp_client *  dhmp_client_init(size_t buffer_size)
 	/*init normal connection*/
 	memset(client_mgr->connect_trans, 0, DHMP_SERVER_NODE_NUM*
 										sizeof(struct dhmp_transport*));
-	
-	if(IS_MAIN(server_instance->server_type))
+
+	// 客户端主动和主节点建立连接 
+	if (!is_mica_cli)
 	{
-		// 头节点需要主动和所有的node建立rdma连接，所有的node都是头节点的server
-		for(i=0; i<client_mgr->config.nets_cnt; i++)
+		if(IS_MAIN(server_instance->server_type))
 		{
-			/*server_instance skip himself to avoid connecting himself*/
-			if(server_instance->server_id == i)
+			// 头节点需要主动和所有的node建立rdma连接，所有的node都是头节点的server
+			for(i=0; i<client_mgr->config.nets_cnt; i++)
 			{
-				client_mgr->node_id = i;
-				client_mgr->connect_trans[i] = NULL;
-				continue;
+				/*server_instance skip himself to avoid connecting himself*/
+				if(server_instance->server_id == i)
+				{
+					client_mgr->self_node_id = i;
+					client_mgr->connect_trans[i] = NULL;
+					continue;
+				}
+
+				INFO_LOG("CONNECT BEGIN: create the [%d]-th normal transport.",i);
+				client_mgr->connect_trans[i] = dhmp_connect(i);
+				if(!client_mgr->connect_trans[i])
+				{
+					ERROR_LOG("create the [%d]-th transport error.",i);
+					continue;
+				}
+				client_mgr->connect_trans[i]->is_active = true;
+				client_mgr->connect_trans[i]->node_id = i;
+				client_mgr->read_mr[i] = init_read_mr(buffer_size, client_mgr->connect_trans[i]->device->pd);
+			}
+		}
+
+
+		// 排除集群中只有一个副本节点的情况
+		if(IS_REPLICA(server_instance->server_type) && 
+				server_instance->node_nums > 3 &&
+				server_instance->server_id != server_instance->node_nums-1)
+		{
+			// 中间节点需要主动和下游节点建立rdma连接，只有下游节点是中间节点的server
+			int next_id = server_instance->server_id+1;
+			client_mgr->connect_trans[next_id] = dhmp_connect(next_id);
+
+			if(!client_mgr->connect_trans[next_id]){
+				ERROR_LOG("create the [%d]-th transport error.",next_id);
+				exit(0);
 			}
 
-			INFO_LOG("CONNECT BEGIN: create the [%d]-th normal transport.",i);
-			client_mgr->connect_trans[i] = dhmp_connect(i);
-			if(!client_mgr->connect_trans[i])
-			{
-				ERROR_LOG("create the [%d]-th transport error.",i);
-				continue;
-			}
-			client_mgr->connect_trans[i]->is_active = true;
-			client_mgr->connect_trans[i]->node_id = i;
-			client_mgr->read_mr[i] = init_read_mr(buffer_size, client_mgr->connect_trans[i]->device->pd);
+			client_mgr->connect_trans[next_id]->is_active = true;
+			client_mgr->connect_trans[next_id]->node_id = next_id;
+			client_mgr->read_mr[next_id] = init_read_mr(buffer_size, client_mgr->connect_trans[next_id]->device->pd);	
 		}
 	}
-
-
-	// 排除集群中只有一个副本节点的情况
-	if(IS_REPLICA(server_instance->server_type) && 
-			server_instance->node_nums > 3 &&
-			server_instance->server_id != server_instance->node_nums-1)
+	else
 	{
-		// 中间节点需要主动和下游节点建立rdma连接，只有下游节点是中间节点的server
-		int next_id = server_instance->server_id+1;
-		client_mgr->connect_trans[next_id] = dhmp_connect(next_id);
-
-		if(!client_mgr->connect_trans[next_id]){
-			ERROR_LOG("create the [%d]-th transport error.",next_id);
-			exit(0);
+		// 目前测试客户端只与主节点连接
+		client_mgr->self_node_id = CLINET_ID;
+		INFO_LOG("CONNECT BEGIN: create the [%d]-th normal transport.",i);
+		client_mgr->connect_trans[0] = dhmp_connect(MAIN);	// 目前测试客户端只与主节点连接
+		if(!client_mgr->connect_trans[0])
+		{
+			ERROR_LOG("create the [%d]-th transport error.",i);
+			Assert(false);
 		}
-
-		client_mgr->connect_trans[next_id]->is_active = true;
-		client_mgr->connect_trans[next_id]->node_id = next_id;
-		client_mgr->read_mr[next_id] = init_read_mr(buffer_size, client_mgr->connect_trans[next_id]->device->pd);	
+		client_mgr->connect_trans[0]->is_active = true;
+		client_mgr->connect_trans[0]->node_id = MAIN;
+		client_mgr->read_mr[0] = init_read_mr(buffer_size, client_mgr->connect_trans[0]->device->pd);
 	}
 
 	/* 初始化client段全局对象 */
@@ -284,7 +310,10 @@ struct dhmp_server * dhmp_server_init()
 			
 			// 尾节点单独 set 标志位
 			if (server_instance->server_id == server_instance->node_nums - 1)
+			{
 				SET_TAIL(server_instance->server_type);
+				INFO_LOG("Tail Node server_id is [%d] ", server_instance->server_id);
+			}
 			
 			// 非主节点的头副本节点
 			if (server_instance->server_id == 2)

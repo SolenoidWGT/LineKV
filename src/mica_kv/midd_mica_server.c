@@ -1,7 +1,5 @@
 #include "mehcached.h"
 #include "hash.h"
-
-
 #include "dhmp.h"
 #include "dhmp_log.h"
 #include "dhmp_hash.h"
@@ -18,13 +16,10 @@
 #include "dhmp_top_api.h"
 #include "nic.h"
 
-#define INIT_DHMP_CLIENT_BUFF_SIZE 1024*1024*8
+#include "midd_mica_benchmark.h"
+
 #define TEST_KV_NUMS    MEHCACHED_ITEMS_PER_BUCKET
 
-
-
-
-struct replica_mappings * next_node_mappings = NULL;
 pthread_t nic_thread;
 void* (*main_node_nic_thread_ptr) (void* );
 void* (*replica_node_nic_thread_ptr) (void* );
@@ -34,172 +29,8 @@ volatile bool replica_is_ready = false;
 
 
 struct test_kv kvs_group[TEST_KV_NUMS];
-static struct test_kv * generate_test_data();
 static void free_test_date();
 
-struct ibv_mr * 
-mehcached_get_mapping_self_mr(size_t mapping_id)
-{
-	return &next_node_mappings->mrs[mapping_id];
-}
-
-static struct test_kv *
-generate_test_data(size_t key_offset, size_t val_offset, size_t value_length)
-{
-    size_t i;
-    struct test_kv *kvs_group;
-    kvs_group = (struct test_kv *) malloc(sizeof(struct test_kv) * TEST_KV_NUMS);
-    memset(kvs_group, 0, sizeof(struct test_kv) * TEST_KV_NUMS);
-
-    for (i = 0; i < TEST_KV_NUMS; i++)
-    {
-        size_t key = i + key_offset;
-        // size_t value = i + offset;
-        // uint64_t key_hash = hash((const uint8_t *)&key, sizeof(key));
-        // value_length = sizeof(value) > value_length ? sizeof(value) : value_length;
-
-        kvs_group[i].true_key_length = sizeof(key);
-        kvs_group[i].true_value_length = value_length;
-        kvs_group[i].key = (uint8_t *)malloc(kvs_group[i].true_key_length);
-        kvs_group[i].value = (uint8_t*) malloc(kvs_group[i].true_value_length);
-
-        memset(kvs_group[i].value, i+val_offset, kvs_group[i].true_value_length);
-        memcpy(kvs_group[i].key, &key, kvs_group[i].true_key_length);
-        // memcpy(kvs_group[i].value, &value, kvs_group[i].true_value_length);
-    }
-
-    return kvs_group;
-}
-
-static void
-free_test_date()
-{
-
-}
-
-
-	// size_t 	 out_value_length; 	// 返回值
-	// uint32_t out_expire_time;	// 返回值
-	// bool	 partial;			// 返回值
-	// uint8_t  out_value[0];		// 返回值
-
-// 我们不回去比较key，因为如果value可以正确拿到，则key一定是正确的（另外我们没用拿key的接口)
-bool 
-cmp_item_value(size_t a_value_length, const uint8_t *a_out_value, size_t b_value_length,const uint8_t *b_out_value)
-{
-    bool re = true;
-    if (a_value_length != b_value_length)
-    {
-        ERROR_LOG("MICA value length error! %lu != %lu", a_value_length, b_value_length);
-        re= (false);
-    }
-
-    size_t off = 0;
-    bool first = false, second = false, second_count=0;
-    for (off = 0; off < b_value_length; off++)
-    {
-        if (a_out_value[off] != b_out_value[off])
-        {
-            if (first == false)
-            {
-                first = true;
-                size_t tp = off - 16;
-                for (; tp < off; tp++)
-                    printf("%d, %hhu, %hhu\n", tp, a_out_value[tp], b_out_value[tp]);
-            }
-            // 打印 unsigned char printf 的 格式是 %hhu
-            printf("%d, %hhu, %hhu\n", off, a_out_value[off], b_out_value[off]);
-        }
-        else
-        {
-            if (first == true && second == false && second_count < 16)
-            {
-                printf("%d, %hhu, %hhu\n", off, a_out_value[off], b_out_value[off]);
-                second_count ++;
-                if (second_count == 16)
-                    second = true;
-            }
-        }
-    }
-
-    if (memcmp(a_out_value, b_out_value, b_value_length) != 0 )
-    {
-        ERROR_LOG("value context error! %p, %p, len is %lu", a_out_value, b_out_value, b_value_length);
-        re=  (false);
-    }
-
-    // if (memcmp(GET_TRUE_VALUE_ADDR(a_out_value), GET_TRUE_VALUE_ADDR(b_out_value), GET_TRUE_VALUE_LEN(b_value_length)) != 0 )
-    // {
-    //     ERROR_LOG("true value error!");
-    //     re=  (false);
-    // }
-    return re;
-}
-
-void dump_value_by_addr(const uint8_t * value, size_t value_length)
-{
-    uint64_t header_v, tail_v, value_count;
-    
-    bool dirty;
-
-    header_v = *(uint64_t*) value;
-    value_count = *(uint64_t*) (value + sizeof(uint64_t));
-    tail_v = *(uint64_t*) (value + 2*sizeof(uint64_t) + GET_TRUE_VALUE_LEN(value_length));
-    dirty = *(bool*)(value + 3*sizeof(uint64_t) + GET_TRUE_VALUE_LEN(value_length));
-
-    INFO_LOG("value header_v is %lu, value_count is %lu, tail_v is %lu, dirty is %d", header_v,value_count,tail_v, dirty);
-#ifdef DUMP_VALUE
-    const uint8_t * value_base  = (value + 2 * sizeof(uint64_t));
-    HexDump(value_base, (int)(GET_TRUE_VALUE_LEN(value_length)), (int) value_base);
-#endif
-}
-
-
-bool 
-cmp_item_all_value(size_t a_value_length, const uint8_t *a_out_value, size_t b_value_length,const uint8_t *b_out_value)
-{
-    bool re = true;
-    if (a_value_length != b_value_length)
-    {
-        ERROR_LOG("MICA value length error! %lu != %lu", a_value_length, b_value_length);
-        re= (false);
-    }
-    size_t off = 0;
-    for (off = 0; off < b_value_length; off++)
-    {
-        if (a_out_value[off] != b_out_value[off])
-        {
-            // 打印 unsigned char printf 的 格式是 %hhu
-            printf("%d, %hhu, %hhu\n", off, a_out_value[off], b_out_value[off]);
-        }
-    }
-    if (memcmp(a_out_value, b_out_value, b_value_length) != 0 )
-    {
-        ERROR_LOG("value context error! %p, %p, len is %lu", a_out_value, b_out_value, b_value_length);
-        // struct midd_value_header
-        // {
-        //     uint64_t version;
-        //     uint64_t value_count;
-        //     uint8_t data[0];
-        // };
-
-        // struct midd_value_tail
-        // {
-        //     uint64_t version;
-        //     volatile bool dirty;     // 我们将脏标志位放在value末尾，最后被更新
-        // };
-        // dump_value_by_addr(a_out_value, a_value_length);
-        // dump_value_by_addr(b_out_value, b_value_length);
-        re=  (false);
-    }
-
-    // if (memcmp(GET_TRUE_VALUE_ADDR(a_out_value), GET_TRUE_VALUE_ADDR(b_out_value), GET_TRUE_VALUE_LEN(b_value_length)) != 0 )
-    // {
-    //     ERROR_LOG("true value error!");
-    //     re=  (false);
-    // }
-    return re;
-}
 
 
 // 测试所有节点中的数据必须一致
@@ -234,33 +65,33 @@ void test_get_consistent(struct test_kv * kvs)
         if (!cmp_item_value(true_value_length, value, out_value_length, out_value))
         {
             ERROR_LOG("local item key_hash [%lx] value compare false!", key_hash);
-            // Assert(false);
+            Assert(false);
         }
         INFO_LOG("No.<%d> Main Node [%d] set test success!", i, MAIN_NODE_ID);
 
         // 测试镜像节点数据一致
-        get_result = mica_get_remote_warpper(0, key_hash, key, true_key_length, false, NULL, MIRROR_NODE_ID);
+        get_result = mica_get_remote_warpper(0, key_hash, key, true_key_length, false, NULL, MIRROR_NODE_ID, server_instance->server_id);
         if (get_result == NULL || get_result->out_value_length == (size_t) - 1)
         {
             ERROR_LOG("MICA get key %lx failed!", key_hash);
-            // Assert(false);
+            Assert(false);
         }
         if (get_result->partial == true)
         {
             ERROR_LOG("value too long!");
-            //Assert(false);
+            Assert(false);
         }
 
-        // if (!cmp_item_value(true_value_length, value, MEHCACHED_VALUE_LENGTH(item->kv_length_vec), item_get_value_addr(item)))
-        // {
-        //     ERROR_LOG(" item key_hash [%lx] value compare false!", key_hash);
-        //     //Assert(false);
-        // }
+        if (!cmp_item_value(true_value_length, value, MEHCACHED_VALUE_LENGTH(item->kv_length_vec), item_get_value_addr(item)))
+        {
+            ERROR_LOG(" item key_hash [%lx] value compare false!", key_hash);
+            Assert(false);
+        }
 
         if (!cmp_item_all_value(get_result->out_value_length, get_result->out_value, MEHCACHED_VALUE_LENGTH(item->kv_length_vec), item_get_value_addr(item)))
         {
             ERROR_LOG("Mirror item key_hash [%lx] value compare false!", key_hash);
-            //Assert(false);
+            Assert(false);
         }
         free(get_result);
         INFO_LOG("No.<%d>, Mirror Node [%d] set test success!", i, MIRROR_NODE_ID);
@@ -272,7 +103,7 @@ void test_get_consistent(struct test_kv * kvs)
             while(true)
             {
                 // 远端获取的默认是带header和tailer的value
-                get_result = mica_get_remote_warpper(0, key_hash, key, true_key_length, false, NULL, nid);
+                get_result = mica_get_remote_warpper(0, key_hash, key, true_key_length, false, NULL, nid, server_instance->server_id);
                 if (get_result == NULL)
                 {
                     ERROR_LOG("MICA get key %lx failed!", key_hash);
@@ -353,7 +184,8 @@ test_set(struct test_kv * kvs)
                                     true, 
                                     &req_callback_ptr[nid],
                                     nid,
-                                    is_update);
+                                    is_update,
+                                    server_instance->server_id);
         }
 
         for (nid = MIRROR_NODE_ID; nid <= REPLICA_NODE_TAIL_ID; nid++)
@@ -424,7 +256,7 @@ int main()
 
     // 初始化 rdma 连接
     server_instance = dhmp_server_init();
-    client_mgr = dhmp_client_init(INIT_DHMP_CLIENT_BUFF_SIZE);
+    client_mgr = dhmp_client_init(INIT_DHMP_CLIENT_BUFF_SIZE, false);
     Assert(server_instance);
     Assert(client_mgr);
 
@@ -508,7 +340,8 @@ int main()
         // 启动网卡线程
         pthread_create(&nic_thread, NULL, *main_node_nic_thread_ptr, NULL);
 		INFO_LOG("---------------------------MAIN node init finished!------------------------------");
-        
+
+#ifdef MAIN_NODE_TEST
         // 主节点启动测试程序
         struct test_kv * kvs = generate_test_data(10, 10, 1024-VALUE_HEADER_LEN-VALUE_TAIL_LEN);
         test_set(kvs);
@@ -518,6 +351,7 @@ int main()
         test_set(kvs3);
         // test_set(kvs, 100);
         // test_set(kvs, 1000);
+#endif
     }
 
 	if (IS_MIRROR(server_instance->server_type))

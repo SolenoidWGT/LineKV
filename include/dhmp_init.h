@@ -3,5 +3,5 @@
 #include "dhmp_server.h"
 
 struct dhmp_server * dhmp_server_init();
-struct dhmp_client * dhmp_client_init(size_t size);
+struct dhmp_client * dhmp_client_init(size_t size,  bool is_mica_cli);
 #endif

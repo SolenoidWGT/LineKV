@@ -3,8 +3,8 @@
  * @version: 
  * @Author: sueRimn
  * @Date: 2021-04-25 17:46:17
- * @LastEditors: sueRimn
- * @LastEditTime: 2021-05-06 21:00:13
+ * @LastEditors: Please set LastEditors
+ * @LastEditTime: 2022-03-09 19:54:09
  */
 #ifndef DHMP_CLIENT_H
 #define DHMP_CLIENT_H
@@ -15,7 +15,8 @@
 
 struct dhmp_client{
 	/* data */
-	int node_id;
+	size_t self_node_id;
+	bool	is_test_clinet;
 	struct dhmp_context ctx;
 	struct dhmp_config config;
 	struct list_head dev_list;
@@ -46,6 +47,7 @@ struct dhmp_client{
 };
 
 extern struct dhmp_client *client_mgr;
+extern size_t CLINET_ID;
 #endif
 
 

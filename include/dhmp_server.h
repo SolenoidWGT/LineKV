@@ -38,7 +38,7 @@ struct dhmp_server{
 extern struct dhmp_server *server_instance;
 
 struct dhmp_device *dhmp_get_dev_from_server();
-
+struct dhmp_device *dhmp_get_dev_from_client();
 
 #endif
 

@@ -1,3 +1,11 @@
+/*
+ * @Author: your name
+ * @Date: 2022-02-28 16:09:39
+ * @LastEditTime: 2022-03-09 21:39:04
+ * @LastEditors: Please set LastEditors
+ * @Description: 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
+ * @FilePath: /LineKV/include/dhmp_mica_shm_common.h
+ */
 #ifndef DHMP_MICA_SHM_COMMON_H
 #define DHMP_MICA_SHM_COMMON_H
 #include <stdio.h>
@@ -54,7 +62,7 @@ void copy_mapping_info(void * src);
 void copy_mapping_mrs_info(struct ibv_mr * mrs);
 inline size_t get_mapping_nums();
 
-
-struct ibv_mr * mehcached_get_mapping_self_mr(size_t mapping_id);
+extern struct replica_mappings * next_node_mappings;
+struct ibv_mr * mehcached_get_mapping_self_mr(struct replica_mappings * mappings, size_t mapping_id);
 void makeup_update_request(struct mehcached_item * item, uint64_t item_offset, const uint8_t *value, uint32_t value_length);
 #endif

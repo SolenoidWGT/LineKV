@@ -32,6 +32,7 @@
 #ifdef USE_RDMA
 #include "mica_rdma_common.h"
 #include "table.h"
+#include "dhmp_mica_shm_common.h"
 #endif
 MEHCACHED_BEGIN
 
@@ -47,6 +48,8 @@ static struct mehcached_shm_mapping mehcached_shm_mappings[MEHCACHED_SHM_MAX_MAP
 static size_t mehcached_shm_used_memory;
 
 static const char *mehcached_shm_path_prefix = "/home/gtwang/midd_mica/map_files/mehcached_shm_";
+
+struct replica_mappings * next_node_mappings = NULL;
 
 size_t
 mehcached_shm_adjust_size(size_t size)

@@ -333,26 +333,26 @@ struct dhmp_transport* dhmp_transport_create(struct dhmp_context* ctx,
 	}
 
 	/*Test device */
-	struct dhmp_device * server_dev = dhmp_get_dev_from_server();
-	struct dhmp_device * client_dev = dhmp_get_dev_from_server();
-	struct dhmp_device * trans_dev = rdma_trans->device;
+	// struct dhmp_device * server_dev = dhmp_get_dev_from_server();
+	// struct dhmp_device * client_dev = dhmp_get_dev_from_server();
+	// struct dhmp_device * trans_dev = rdma_trans->device;
 
-	if (memcmp(server_dev, client_dev, sizeof(struct dhmp_device) - sizeof(struct list_head)) != 0 ||
-		memcmp(server_dev->pd->context, trans_dev->pd->context, sizeof(struct ibv_pd)) != 0)
-	{
-		ERROR_LOG("device select error!");
-		exit(1);
-	}
+	// if (memcmp(server_dev, client_dev, sizeof(struct dhmp_device) - sizeof(struct list_head)) != 0 ||
+	// 	memcmp(server_dev->pd->context, trans_dev->pd->context, sizeof(struct ibv_pd)) != 0)
+	// {
+	// 	ERROR_LOG("device select error!");
+	// 	exit(1);
+	// }
 
 	if(!is_listen)
 	{
-		err=dhmp_memory_register(trans_dev->pd,
+		err=dhmp_memory_register(dev->pd,
 								&rdma_trans->send_mr,
 								SEND_REGION_SIZE);
 		if(err)
 			goto out_event_channel;
 
-		err=dhmp_memory_register(trans_dev->pd,
+		err=dhmp_memory_register(dev->pd,
 								&rdma_trans->recv_mr,
 								RECV_REGION_SIZE);
 		if(err)

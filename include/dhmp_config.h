@@ -2,10 +2,9 @@
 #define DHMP_CONFIG_H
 
 #define DHMP_CONFIG_FILE_NAME "config.xml"
-
 // ADD 
-#define DHMP_CLIENT_CONFIG_FILE_NAME "client_config.xml"
-#define DHMP_SERVER_CONFIG_FILE_NAME "server_config.xml"
+#define DHMP_CLIENT_CONFIG_FILE_NAME "config_cli.xml"
+// #define DHMP_SERVER_CONFIG_FILE_NAME "server_config.xml"
 
 
 #define DHMP_ADDR_LEN 18
