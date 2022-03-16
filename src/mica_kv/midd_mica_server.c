@@ -20,13 +20,13 @@
 
 #define TEST_KV_NUMS    MEHCACHED_ITEMS_PER_BUCKET
 
-pthread_t nic_thread;
+pthread_t nic_thread[PARTITION_NUMS];
 void* (*main_node_nic_thread_ptr) (void* );
 void* (*replica_node_nic_thread_ptr) (void* );
 void test_set(struct test_kv * kvs);
 
 volatile bool replica_is_ready = false;
-
+static size_t SERVER_ID= (size_t)-1;
 
 struct test_kv kvs_group[TEST_KV_NUMS];
 static void free_test_date();
@@ -34,109 +34,111 @@ static void free_test_date();
 
 
 // 测试所有节点中的数据必须一致
-void test_get_consistent(struct test_kv * kvs)
+void test_get_consistent(struct test_kv * kvs MEHCACHED_UNUSED)
 {
-    size_t i, nid;
-    INFO_LOG("---------------------------test_get_consistent!---------------------------");
-    for (i = 0; i < TEST_KV_NUMS; i++)
-    {
-        const uint8_t* key = kvs[i].key;
-        const uint8_t* value = kvs[i].value;
-        size_t true_key_length = kvs[i].true_key_length;
-        size_t true_value_length = kvs[i].true_value_length;
-        uint64_t key_hash = hash(key, true_key_length);
-        uint8_t* out_value = (uint8_t*)malloc(true_value_length);
-        size_t  out_value_length;
-        uint32_t expire_time;
-        struct dhmp_mica_get_response *get_result = NULL;
+    // size_t i, nid;
+    // INFO_LOG("---------------------------test_get_consistent!---------------------------");
+    // for (i = 0; i < TEST_KV_NUMS; i++)
+    // {
+    //     const uint8_t* key = kvs[i].key;
+    //     const uint8_t* value = kvs[i].value;
+    //     size_t true_key_length = kvs[i].true_key_length;
+    //     size_t true_value_length = kvs[i].true_value_length;
+    //     uint64_t key_hash = hash(key, true_key_length);
+    //     uint8_t* out_value = (uint8_t*)malloc(true_value_length);
+    //     size_t  out_value_length;
+    //     uint32_t expire_time;
+    //     struct dhmp_mica_get_response *get_result = NULL;
 
-        struct mehcached_item * item = kvs[i].item;
-        Assert(item != NULL);
+    //     struct mehcached_item * item = kvs[i].item;
+    //     Assert(item != NULL);
 
-        // 测试本地 table 数据一致
-        if (!mid_mehcached_get_warpper(0, main_table, key_hash, key, true_key_length,\
-                                     out_value, &out_value_length, \
-                                     &expire_time, false, true))
-        {
-            ERROR_LOG("key hash [%lx] get false", key_hash);
-            Assert(false);
-        }
+    //     // 测试本地 table 数据一致
+    //     if (!mid_mehcached_get_warpper(0, main_table, key_hash, key, true_key_length,\
+    //                                  out_value, &out_value_length, \
+    //                                  &expire_time, false, true))
+    //     {
+    //         ERROR_LOG("key hash [%lx] get false", key_hash);
+    //         Assert(false);
+    //     }
 
-        if (!cmp_item_value(true_value_length, value, out_value_length, out_value))
-        {
-            ERROR_LOG("local item key_hash [%lx] value compare false!", key_hash);
-            Assert(false);
-        }
-        INFO_LOG("No.<%d> Main Node [%d] set test success!", i, MAIN_NODE_ID);
+    //     if (!cmp_item_value(true_value_length, value, out_value_length, out_value))
+    //     {
+    //         ERROR_LOG("local item key_hash [%lx] value compare false!", key_hash);
+    //         Assert(false);
+    //     }
+    //     INFO_LOG("No.<%d> Main Node [%d] set test success!", i, MAIN_NODE_ID);
 
-        // 测试镜像节点数据一致
-        get_result = mica_get_remote_warpper(0, key_hash, key, true_key_length, false, NULL, MIRROR_NODE_ID, server_instance->server_id);
-        if (get_result == NULL || get_result->out_value_length == (size_t) - 1)
-        {
-            ERROR_LOG("MICA get key %lx failed!", key_hash);
-            Assert(false);
-        }
-        if (get_result->partial == true)
-        {
-            ERROR_LOG("value too long!");
-            Assert(false);
-        }
+    //     // 测试镜像节点数据一致
+    //     get_result = mica_get_remote_warpper(0, key_hash, key, true_key_length, false, NULL, MIRROR_NODE_ID, server_instance->server_id, out_value_length, (size_t)i);
+    //     if (get_result == NULL || get_result->out_value_length == (size_t) - 1)
+    //     {
+    //         ERROR_LOG("MICA get key %lx failed!", key_hash);
+    //         Assert(false);
+    //     }
+    //     if (get_result->partial == true)
+    //     {
+    //         ERROR_LOG("value too long!");
+    //         Assert(false);
+    //     }
 
-        if (!cmp_item_value(true_value_length, value, MEHCACHED_VALUE_LENGTH(item->kv_length_vec), item_get_value_addr(item)))
-        {
-            ERROR_LOG(" item key_hash [%lx] value compare false!", key_hash);
-            Assert(false);
-        }
+    //     if (!cmp_item_value(true_value_length, value, MEHCACHED_VALUE_LENGTH(item->kv_length_vec), item_get_value_addr(item)))
+    //     {
+    //         ERROR_LOG(" item key_hash [%lx] value compare false!", key_hash);
+    //         Assert(false);
+    //     }
 
-        if (!cmp_item_all_value(get_result->out_value_length, get_result->out_value, MEHCACHED_VALUE_LENGTH(item->kv_length_vec), item_get_value_addr(item)))
-        {
-            ERROR_LOG("Mirror item key_hash [%lx] value compare false!", key_hash);
-            Assert(false);
-        }
-        free(get_result);
-        INFO_LOG("No.<%d>, Mirror Node [%d] set test success!", i, MIRROR_NODE_ID);
+    //     if (!cmp_item_all_value(get_result->out_value_length, get_result->out_value, MEHCACHED_VALUE_LENGTH(item->kv_length_vec), item_get_value_addr(item)))
+    //     {
+    //         ERROR_LOG("Mirror item key_hash [%lx] value compare false!", key_hash);
+    //         Assert(false);
+    //     }
+    //     free(get_result);
+    //     INFO_LOG("No.<%d>, Mirror Node [%d] set test success!", i, MIRROR_NODE_ID);
 
-        // 测试远端 replica 节点数据一致
-        for (nid = REPLICA_NODE_HEAD_ID; nid <= REPLICA_NODE_TAIL_ID; nid++)
-        {
-            // 如果 version 不一致，需要反复尝试get直到一致后才会返回结果
-            while(true)
-            {
-                // 远端获取的默认是带header和tailer的value
-                get_result = mica_get_remote_warpper(0, key_hash, key, true_key_length, false, NULL, nid, server_instance->server_id);
-                if (get_result == NULL)
-                {
-                    ERROR_LOG("MICA get key %lx failed!", key_hash);
-                    Assert(false);
-                }
+    //     // 测试远端 replica 节点数据一致
+    //     for (nid = REPLICA_NODE_HEAD_ID; nid <= REPLICA_NODE_TAIL_ID; nid++)
+    //     {
+    //         // 如果 version 不一致，需要反复尝试get直到一致后才会返回结果
+    //         while(true)
+    //         {
+    //             // 远端获取的默认是带header和tailer的value
+    //             get_result = mica_get_remote_warpper(0, key_hash, key, true_key_length, false, NULL, nid, server_instance->server_id, out_value_length, (size_t)i);
+    //             if (get_result == NULL)
+    //             {
+    //                 ERROR_LOG("MICA get key %lx failed!", key_hash);
+    //                 Assert(false);
+    //             }
                 
-                if (get_result->out_value_length != (size_t) - 1)
-                    break;
-            }
+    //             if (get_result->out_value_length != (size_t) - 1)
+    //                 break;
+    //         }
  
-            if (get_result->partial == true)
-            {
-                ERROR_LOG("value too long!");
-                Assert(false);
-            }
+    //         if (get_result->partial == true)
+    //         {
+    //             ERROR_LOG("value too long!");
+    //             Assert(false);
+    //         }
 
-            if (!cmp_item_value(get_result->out_value_length, get_result->out_value, MEHCACHED_VALUE_LENGTH(item->kv_length_vec), item_get_value_addr(item)))
-            {
-                ERROR_LOG("Replica node [%d] item key_hash [%lx] value compare false!", nid, key_hash);
-                Assert(false);
-            }
-            INFO_LOG("No.<%d> Replica Node [%d] set test success!",i, nid);
-            free(get_result);
-        }
+    //         if (!cmp_item_value(get_result->out_value_length, get_result->out_value, MEHCACHED_VALUE_LENGTH(item->kv_length_vec), item_get_value_addr(item)))
+    //         {
+    //             ERROR_LOG("Replica node [%d] item key_hash [%lx] value compare false!", nid, key_hash);
+    //             Assert(false);
+    //         }
+    //         INFO_LOG("No.<%d> Replica Node [%d] set test success!",i, nid);
+    //         free(get_result);
+    //     }
 
-        INFO_LOG("No.<%d> Key_hash [%lx] pas all compare scuess!", i, key_hash);
-    }
-    INFO_LOG("---------------------------test_get_consistent finish!---------------------------");
+    //     INFO_LOG("No.<%d> Key_hash [%lx] pas all compare scuess!", i, key_hash);
+    // }
+    // INFO_LOG("---------------------------test_get_consistent finish!---------------------------");
 }
 
+
 void
-test_set(struct test_kv * kvs)
+test_set(struct test_kv * kvs MEHCACHED_UNUSED)
 {
+    /*
     INFO_LOG("---------------------------test_set()---------------------------");
     Assert(main_table);
 
@@ -185,7 +187,8 @@ test_set(struct test_kv * kvs)
                                     &req_callback_ptr[nid],
                                     nid,
                                     is_update,
-                                    server_instance->server_id);
+                                    server_instance->server_id,
+                                    nid);
         }
 
         for (nid = MIRROR_NODE_ID; nid <= REPLICA_NODE_TAIL_ID; nid++)
@@ -223,7 +226,8 @@ test_set(struct test_kv * kvs)
         // 还需要返回远端 value 的虚拟地址， 用来求偏移量
         makeup_update_request(item, item_offset,\
                              (uint8_t*)item_get_value_addr(item), \
-                             MEHCACHED_VALUE_LENGTH(item->kv_length_vec));
+                             MEHCACHED_VALUE_LENGTH(item->kv_length_vec),
+                             nid);
  
         INFO_LOG("key hash [%lx] notices downstream replica node!", key_hash);
     }
@@ -236,26 +240,40 @@ test_set(struct test_kv * kvs)
     // 主线程等待1s，让输出更清晰一点
     sleep(1);
     test_get_consistent(kvs);
+    */
 }
 
-int main()
+int main(int argc,char *argv[])
 {
     // 初始化集群 rdma 连接
+    int i, retval;
+    int nic_thread_num;
     size_t numa_nodes[] = {(size_t)-1};;
     const size_t page_size = 1048576 * 2;
 	const size_t num_numa_nodes = 2;
     const size_t num_pages_to_try = 16384;
     const size_t num_pages_to_reserve = 16384 - 2048;   // give 2048 pages to dpdk
+    
+    for (i = 0; i<argc; i++)
+	{
+		SERVER_ID = (size_t)(*argv[i] - '0');
+        INFO_LOG("Server node_id is [%d]", SERVER_ID);
+	}
 
+#ifdef NIC_MULITI_THREAD
+    nic_thread_num = PARTITION_NUMS;
+#else
+    nic_thread_num = 1;
+#endif
     // 初始化 hook
-    set_main_node_thread_addr(&main_node_nic_thread_ptr);
-    set_replica_node_thread_addr(&replica_node_nic_thread_ptr);
+    // set_main_node_thread_addr(&main_node_nic_thread_ptr);
+    // set_replica_node_thread_addr(&replica_node_nic_thread_ptr);
 
     // 初始化本地存储，分配 page
 	mehcached_shm_init(page_size, num_numa_nodes, num_pages_to_try, num_pages_to_reserve);
 
     // 初始化 rdma 连接
-    server_instance = dhmp_server_init();
+    server_instance = dhmp_server_init(SERVER_ID);
     client_mgr = dhmp_client_init(INIT_DHMP_CLIENT_BUFF_SIZE, false);
     Assert(server_instance);
     Assert(client_mgr);
@@ -338,7 +356,15 @@ int main()
 		}
 
         // 启动网卡线程
-        pthread_create(&nic_thread, NULL, *main_node_nic_thread_ptr, NULL);
+        for (i=0; i<nic_thread_num; i++)
+        {
+            retval = pthread_create(&nic_thread[i], NULL, main_node_nic_thread, (void*)i);
+            if(retval)
+            {
+                ERROR_LOG("pthread create error.");
+                return -1;
+            }
+        }
 		INFO_LOG("---------------------------MAIN node init finished!------------------------------");
 
 #ifdef MAIN_NODE_TEST
@@ -383,7 +409,16 @@ int main()
             }
 
             // 启动网卡线程
-            pthread_create(&nic_thread, NULL, *replica_node_nic_thread_ptr, NULL);
+            //pthread_create(&nic_thread, NULL, *replica_node_nic_thread_ptr, NULL);
+            for (i=0; i<nic_thread_num; i++)
+            {
+                retval = pthread_create(&nic_thread[i], NULL, main_node_nic_thread, (void*)i);
+                if(retval)
+                {
+                    ERROR_LOG("pthread create error.");
+                    return -1;
+                }
+            }
             MID_LOG("Node [%d] is started nicthread and get cliMR!", server_instance->server_id);
         }
 

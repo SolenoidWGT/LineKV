@@ -254,9 +254,9 @@ int dhmp_config_init ( struct dhmp_config* config_ptr, bool is_client )
 	xmlDocPtr config_doc;
 	xmlNodePtr curnode;
 
-	if (is_client )
-		config_file=DHMP_CLIENT_CONFIG_FILE_NAME;
-	else
+	// if (is_client )
+	// 	config_file=DHMP_CLIENT_CONFIG_FILE_NAME;
+	// else
 		config_file=DHMP_CONFIG_FILE_NAME;
 
 	config_doc=xmlParseFile ( config_file );

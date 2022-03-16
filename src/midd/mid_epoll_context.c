@@ -67,7 +67,7 @@ int dhmp_context_add_event_fd(struct dhmp_context *ctx,
 	struct epoll_event ee;
 	struct dhmp_event_data *event_data_ptr;
 	int retval=0;
-	
+
 	event_data_ptr=(struct dhmp_event_data*)malloc(sizeof(struct dhmp_event_data));
 	if(!event_data_ptr)
 	{
@@ -78,7 +78,7 @@ int dhmp_context_add_event_fd(struct dhmp_context *ctx,
 	event_data_ptr->fd=fd;
 	event_data_ptr->data_ptr=data;
 	event_data_ptr->event_handler=event_handler;
-	
+
 	memset(&ee,0,sizeof(ee));
 	ee.events=events;
 	ee.data.ptr=event_data_ptr;

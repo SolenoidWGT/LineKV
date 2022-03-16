@@ -17,6 +17,8 @@
 #include "common.h"
 #include "alloc_malloc.h"
 #include "alloc_dynamic.h"
+#include "mica_partition.h"
+#include "linux/list.h"
 
 MEHCACHED_BEGIN
 
@@ -197,6 +199,15 @@ typedef enum _MEHCACHED_OPERATION
     MEHCACHED_INCREMENT,
 } MEHCACHED_OPERATION;
 
+// wgt: 增加get返回的各种状态
+typedef enum MICA_GET_STATUS
+{
+    MICA_GET_SUCESS = 0,
+    MICA_NO_KEY,
+    MICA_VERSION_IS_DIRTY,
+    MICA_GET_PARTIAL
+} MICA_GET_STATUS;
+
 struct mehcached_request
 {
     // 0
@@ -269,12 +280,12 @@ void
 mehcached_prefetch_alloc(struct mehcached_prefetch_state *in_out_prefetch_state);
 
 bool
-mehcached_get(uint8_t current_alloc_id, struct mehcached_table *table, uint64_t key_hash, const uint8_t *key, size_t key_length, uint8_t *out_value, size_t *in_out_value_length, uint32_t *out_expire_time, bool readonly, bool get_true_value);
+mehcached_get(uint8_t current_alloc_id, struct mehcached_table *table, uint64_t key_hash, const uint8_t *key, size_t key_length, uint8_t *out_value, size_t *in_out_value_length, uint32_t *out_expire_time, bool readonly, bool get_true_value, MICA_GET_STATUS *get_status);
 
 bool
 mid_mehcached_get_warpper(uint8_t current_alloc_id MEHCACHED_UNUSED, struct mehcached_table *table, uint64_t key_hash,
                             const uint8_t *key, size_t key_length, uint8_t *out_value, size_t *in_out_value_length,
-                            uint32_t *out_expire_time, bool readonly MEHCACHED_UNUSED, bool get_true_value);
+                            uint32_t *out_expire_time, bool readonly MEHCACHED_UNUSED, bool get_true_value, MICA_GET_STATUS *get_status);
                             
 static
 bool
@@ -354,7 +365,7 @@ find_item(struct mehcached_table *table, uint64_t key_hash, const uint8_t* key, 
 
 size_t mehcached_find_item_index_warpper(const struct mehcached_table *table, struct mehcached_bucket *bucket, uint64_t key_hash, uint16_t tag, const uint8_t *key, size_t key_length, struct mehcached_bucket **located_bucket);
 
-extern struct list_head nic_send_list;
+extern struct list_head nic_send_list[PARTITION_NUMS];
 
 uint8_t * item_get_key_addr(struct mehcached_item *item);
 uint8_t * item_get_value_addr(struct mehcached_item *item);

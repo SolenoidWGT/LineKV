@@ -14,8 +14,7 @@
 struct dhmp_server *server_instance=NULL;
 struct dhmp_client *client_mgr=NULL;
 size_t CLINET_ID=(size_t)-1;
-static struct dhmp_send_mr * 
-init_read_mr(int buffer_size, struct ibv_pd* pd);
+static struct dhmp_send_mr * init_read_mr(int buffer_size, struct ibv_pd* pd);
 
 struct dhmp_device *dhmp_get_dev_from_client()
 {
@@ -83,11 +82,13 @@ dhmp_connect(int peer_node_id)
 								client_mgr->config.net_infos[peer_node_id].port);
 
 		/* main thread sleep a while, wait dhmp_event_channel_handler finish connection*/
-		sleep(1);
+		// sleep(1);
+		// sleep_ms(100);
 
-		if(conn->trans_state < DHMP_TRANSPORT_STATE_CONNECTED)
-			continue;
-		else if(conn->trans_state == DHMP_TRANSPORT_STATE_REJECT)
+		while(conn->trans_state < DHMP_TRANSPORT_STATE_CONNECTED)
+			sleep_ms(100);
+
+		if(conn->trans_state == DHMP_TRANSPORT_STATE_REJECT)
 		{
 			free_trans(conn);
 			free(conn);
@@ -193,7 +194,6 @@ struct dhmp_client *  dhmp_client_init(size_t buffer_size, bool is_mica_cli)
 			}
 		}
 
-
 		// 排除集群中只有一个副本节点的情况
 		if(IS_REPLICA(server_instance->server_type) && 
 				server_instance->node_nums > 3 &&
@@ -213,21 +213,6 @@ struct dhmp_client *  dhmp_client_init(size_t buffer_size, bool is_mica_cli)
 			client_mgr->read_mr[next_id] = init_read_mr(buffer_size, client_mgr->connect_trans[next_id]->device->pd);	
 		}
 	}
-	else
-	{
-		// 目前测试客户端只与主节点连接
-		client_mgr->self_node_id = CLINET_ID;
-		INFO_LOG("CONNECT BEGIN: create the [%d]-th normal transport.",i);
-		client_mgr->connect_trans[0] = dhmp_connect(MAIN);	// 目前测试客户端只与主节点连接
-		if(!client_mgr->connect_trans[0])
-		{
-			ERROR_LOG("create the [%d]-th transport error.",i);
-			Assert(false);
-		}
-		client_mgr->connect_trans[0]->is_active = true;
-		client_mgr->connect_trans[0]->node_id = MAIN;
-		client_mgr->read_mr[0] = init_read_mr(buffer_size, client_mgr->connect_trans[0]->device->pd);
-	}
 
 	/* 初始化client段全局对象 */
 	// global_verbs_send_mr = (struct dhmp_send_mr* )malloc(sizeof(struct dhmp_send_mr));
@@ -241,9 +226,7 @@ struct dhmp_client *  dhmp_client_init(size_t buffer_size, bool is_mica_cli)
 	return client_mgr;
 }
 
-
-
-struct dhmp_server * dhmp_server_init()
+struct dhmp_server * dhmp_server_init(size_t server_id)
 {
 	int i,err=0;
 	struct ibv_port_attr port_info;
@@ -261,8 +244,14 @@ struct dhmp_server * dhmp_server_init()
 	dhmp_hash_init();
 	dhmp_config_init(&server_instance->config, false);
 	dhmp_context_init(&server_instance->ctx);
-	server_instance->server_id = server_instance->config.curnet_id;
+	// server_instance->server_id = server_instance->config.curnet_id;
+	Assert((server_id != ((size_t) -1) && server_id < server_instance->node_nums));
+	server_instance->config.curnet_id = server_id;
+	server_instance->server_id = server_id;
 	server_instance->node_nums = server_instance->config.nets_cnt;
+
+	// 所有的主节点都需要拥有多线程能力
+	init_mulit_server_work_thread();
 
 	/*init client transport list*/
 	server_instance->cur_connections=0;
@@ -282,6 +271,7 @@ struct dhmp_server * dhmp_server_init()
 		exit(-1);
 	}
 
+	// TODO：从外部命令行输入节点ID，不需要使用循环争抢节点ID
 	while (1)
 	{
 		err=dhmp_transport_listen(server_instance->listen_trans,
@@ -344,9 +334,28 @@ struct dhmp_server * dhmp_server_init()
 		else
 			INFO_LOG("Server port [%u] max message legnth is [%u] MB.", port_num, port_info.max_msg_sz / (1024 * 1024));
 	}
+
 	return server_instance;
 }
 
+int mica_clinet_connect_server(int buffer_size, int target_id)
+{
+	// 目前测试客户端只与主节点连接
+	int idx = client_mgr->conn_index;
+	INFO_LOG("CONNECT BEGIN: create the [%d]-th normal transport.",target_id);
+	client_mgr->connect_trans[idx] = dhmp_connect(target_id);	// 目前测试客户端只与主节点连接
+	if(!client_mgr->connect_trans[idx])
+	{
+		ERROR_LOG("create the [%d]-th transport error.",target_id);
+		return -1;
+	}
+	client_mgr->connect_trans[idx]->is_active = true;
+	client_mgr->connect_trans[idx]->node_id = target_id;
+	client_mgr->read_mr[idx] = init_read_mr(buffer_size, client_mgr->connect_trans[idx]->device->pd);
+	client_mgr->conn_index++;
+	Assert(client_mgr->conn_index < DHMP_SERVER_NODE_NUM);
+	return 1;
+}
 
 void dhmp_server_destroy()
 {

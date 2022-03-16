@@ -176,12 +176,12 @@ struct dhmp_dram_info{
 // 通用消息结构体
 struct post_datagram
 {
-	struct post_datagram* req_ptr;	    	// request 报文的回调指针，用于发送方辨别自己发送的消息
-	struct post_datagram* resp_ptr;			// response 报文的回调指针，用于接收方辨别自己发送的消息
-	int    node_id;							// 身份标识，用于通信双方辨别发送方身份，一次rpc过程中node_id 改变两次
-	enum mica_send_info_type info_type;		// 报文类型的判别
-	size_t info_length;						// 具体消息报文的长度
-	volatile bool   done_flag;						// 用于判别报文是否发送完成，用于阻塞
+	struct   post_datagram* req_ptr;	    	// request 报文的回调指针，用于发送方辨别自己发送的消息
+	struct   post_datagram* resp_ptr;			// response 报文的回调指针，用于接收方辨别自己发送的消息
+	int      node_id;							// 身份标识，用于通信双方辨别发送方身份，一次rpc过程中node_id 改变两次
+	enum     mica_send_info_type info_type;		// 报文类型的判别
+	size_t   info_length;						// 具体消息报文的长度
+	volatile bool  done_flag;					// 用于判别报文是否发送完成，用于阻塞
 };
 #define HEADER_LEN sizeof(struct post_datagram)
 #define DATAGRAM_ALL_LEN(len) ((HEADER_LEN) + len)
@@ -236,6 +236,14 @@ struct dhmp_mica_set_request
 	bool 		is_success;					// 返回值，如果为false需要重试
 	size_t 		out_mapping_id;				// 远端set后对应的item的 mapping_Id，返回值
 	uintptr_t   out_value_addr;				// 远端set后对应的item value 的虚拟地址，返回值
+
+	size_t	tag;	// 这个 tag 用于标识 set 的序号，只有debug的时候有用，性能测试的时候要关闭
+
+	int partition_id;
+
+	// 临时缓冲链表锚点
+	// struct list_head sending_list;
+
 	// key and value segment begin
 	uint8_t data[0];
 };
@@ -247,6 +255,7 @@ struct dhmp_mica_set_response
 	// 如果是主节点则不需要用到下面的字段
 	uint64_t 	key_hash;
 	size_t 		key_length;
+	int partition_id;
 	bool 		is_success;
 	uint8_t 	key_data[0];
 };
@@ -264,16 +273,42 @@ struct dhmp_mica_get_request
 	struct dhmp_mica_get_request * job_callback_ptr;
 	uint64_t key_hash;
 	size_t   key_length;
+	size_t   peer_max_recv_buff_length;
+	int   	partition_id;
+	size_t	tag;	// 这个 tag 用于标识 set 的序号，只有debug的时候有用，性能测试的时候要关闭
 	struct dhmp_mica_get_response * get_resp;
 	uint8_t data[0];		//返回值是 dhmp_mica_get_response
 };
+
+// 存放 recv_wr 卸载信息的结构体
+struct dhmp_mica_recv_trans_data
+{
+	struct dhmp_transport* rdma_trans;
+	struct dhmp_msg* msg;
+};
+
 struct dhmp_mica_get_response
 {
 	size_t 	 out_value_length; 	// 返回值
 	uint32_t out_expire_time;	// 返回值
-	bool	 partial;			// 返回值
+	int 	 partition_id;
+	MICA_GET_STATUS status;
+
+	/* for aysnc recv_wr */
+	struct dhmp_mica_recv_trans_data trans_data;
+	void	* msg_buff_addr;	// 不能被free
 	uint8_t  out_value[0];		// 返回值
 };
+
+// 这个结构体里面存放一些我们希望 remote_get 函数执行后保存下来的一些可以复用的指针
+// 如果不需要复用，需要由调用者负责释放
+struct dhmp_mica_get_reuse_ptr
+{
+	void *req_base_ptr;
+	struct dhmp_mica_get_response *resp_ptr;
+};
+
+
 struct dhmp_write_request
 {
 	struct dhmp_transport* rdma_trans;
@@ -292,10 +327,11 @@ struct dhmp_update_request
 {
 	struct mehcached_item * item;
 	uint64_t item_offset;
+	int partition_id;
+	size_t tag;	// 这个 tag 用于标识 set 的序号，只有debug的时候有用，性能测试的时候要关闭
 	struct dhmp_write_request write_info;
 	struct list_head sending_list;
 };
-
 
 // 增加一个双边操作用于通知，模仿 hyperloop 的行为
 // 只需要向下游节点发送一个偏移量即可？ 是否安全？？
@@ -303,11 +339,15 @@ struct dhmp_update_notify_request
 {
 	// (struct mehcached_item *)mehcached_dynamic_item(&table->alloc, item_offset);
 	// 我们知道了 item_offset 就可以确定 item
+	int partition_id;
+	size_t tag;	// 这个 tag 用于标识 set 的序号，只有debug的时候有用，性能测试的时候要关闭
 	uint64_t item_offset;
 };
 
 struct dhmp_update_notify_response
 {
+	int partition_id;
+	size_t tag;	// 这个 tag 用于标识 set 的序号，只有debug的时候有用，性能测试的时候要关闭
 	bool is_success;
 };
 
@@ -317,25 +357,48 @@ extern int wait_work_expect_counter;
 
 void dump_mr(struct ibv_mr * mr);
 int dhmp_rdma_write_packed (struct dhmp_write_request * write_req);
-void mica_replica_update_notify(uint64_t item_offset);
+void mica_replica_update_notify(uint64_t item_offset, int partition_id, int tag);
 extern volatile bool replica_is_ready;
 
 // 最大超时时间，1s, 单位ns
 // 单线程 reactor 模式中的 recv 操作（比如接收方的get操作）一定不能阻塞，否则会发生死锁
-#define TIMEOUT_LIMIT 1000000000
-#define MICA_TIME_COUNTER_INIT() clock_gettime(CLOCK_MONOTONIC, &SP_start);					
+#define S_BASE   1000000000
+#define MS_BASE  1000000
+#define US_BASE  1000
+#define NS_BASE  1
 
-#define MICA_TIME_COUNTER_CAL()								\
-	{														\
-		clock_gettime(CLOCK_MONOTONIC, &SP_end);			\
-		mica_total_time = (((SP_end.tv_sec * 1000000000) + SP_end.tv_nsec) - ((SP_start.tv_sec * 1000000000) + SP_start.tv_nsec)) / TIMEOUT_LIMIT; \
-		{													\
-			if (mica_total_time > 0)						\
-			{												\
-				ERROR_LOG("TIMEOUT!, exit");				\
-				Assert(false);								\
-			}												\
-		}while(0);											\
+#define TIMEOUT_LIMIT_S 1
+#define TIMEOUT_LIMIT_MS 500
+
+#define DEFINE_STACK_TIMER() 	struct timespec start, end;
+#define MICA_TIME_COUNTER_INIT() clock_gettime(CLOCK_MONOTONIC, &start);					
+
+
+#define MICA_TIME_LIMITED(tag, limit)										\
+	{															\
+		clock_gettime(CLOCK_MONOTONIC, &end);			    	\
+		long long mica_total_time_ns = (((end.tv_sec * 1000000000) + end.tv_nsec) - ((start.tv_sec * 1000000000) + start.tv_nsec)); \
+		{														\
+			if (mica_total_time_ns / MS_BASE > limit)	\
+			{													\
+				ERROR_LOG("tag : [%d] TIMEOUT!, exit", tag);	\
+				Assert(false);									\
+			}													\
+		}while(0);												\
+	}while(0);
+
+#define MICA_TIME_COUNTER_CAL(msg_str)							\
+	{															\
+		clock_gettime(CLOCK_MONOTONIC, &end);			    	\
+		long long mica_total_time_ns = (((end.tv_sec * 1000000000) + end.tv_nsec) - ((start.tv_sec * 1000000000) + start.tv_nsec)); \
+		INFO_LOG("[%s] exec time is [%lld] us", msg_str, mica_total_time_ns / US_BASE); 	\
+	}while(0);
+
+#define MICA_TIME_COUNTER_CAL_PRINTF(msg_str)					\
+	{															\
+		clock_gettime(CLOCK_MONOTONIC, &end);			    	\
+		long long mica_total_time_ns = (((end.tv_sec * 1000000000) + end.tv_nsec) - ((start.tv_sec * 1000000000) + start.tv_nsec)); \
+		printf("[%s] exec time is [%lld] us\n", msg_str, mica_total_time_ns / US_BASE); 	\
 	}while(0);
 
 
@@ -346,6 +409,7 @@ struct test_kv
 {
 	uint8_t * key;
 	uint8_t * value;
+	uint8_t * get_value[PARTITION_NUMS];
 	size_t true_key_length;
 	size_t true_value_length;
 	uint64_t key_hash;
@@ -359,11 +423,22 @@ void dump_value_by_addr(const uint8_t * value, size_t value_length);
 // TODO : 边长 key 插入， header ,tail 元数据的迁移
 
 #define TABLE_POOL_SIZE 1024*1024*1024*1
-#define TABLE_BUCKET_NUMS 64
+#define TABLE_BUCKET_NUMS 1024*1024
 #define INIT_DHMP_CLIENT_BUFF_SIZE 1024*1024*8
 
 void 
 main_node_broadcast_matedata(struct dhmp_mica_set_request  * req_info, 
 							  struct mehcached_item * item, void * key_addr, 
 							  void * value_addr, bool is_update, bool is_maintable);
+
+int init_mulit_server_work_thread();
+
+
+typedef struct distrubute_job_thread_init_data
+{
+    enum dhmp_msg_type thread_type;
+    int partition_id;
+}thread_init_data;
+
+// #define NIC_MULITI_THREAD
 #endif

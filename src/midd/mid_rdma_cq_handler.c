@@ -14,28 +14,45 @@
 
 /**
  *	the success work completion handler function
+ * 
+ *  dhmp_post_recv 在多线程卸载之后必须要放置到卸载的工作线程中去执行，主线程不能执行 dhmp_post_recv
+ *  否则无法保证接收缓冲区已经可以被修改。
  */
 static void dhmp_wc_success_handler(struct ibv_wc* wc)
 {
 	struct dhmp_task *task_ptr;
 	struct dhmp_transport *rdma_trans;
-	struct dhmp_msg msg;
+	struct dhmp_msg *msg;
+	// 由于我们异步化了 wc 处理，所以必须把 msg 变成堆上内存而不是栈中内存。
+	// struct dhmp_msg msg;
 	
+	bool is_async = false;
+	DEFINE_STACK_TIMER();
+
 	task_ptr=(struct dhmp_task*)(uintptr_t)wc->wr_id;
 	rdma_trans=task_ptr->rdma_trans;
 
-	/*read the msg content from the task_ptr sge addr*/
-	msg.msg_type=*(enum dhmp_msg_type*)task_ptr->sge.addr;
-	msg.data_size=*(size_t*)(task_ptr->sge.addr+sizeof(enum dhmp_msg_type));
-	msg.data=task_ptr->sge.addr+sizeof(enum dhmp_msg_type)+sizeof(size_t);
-	
 	switch(wc->opcode)
 	{
 		case IBV_WC_SEND:
 			break;
 		case IBV_WC_RECV:
-			dhmp_wc_recv_handler(rdma_trans, &msg);
-			dhmp_post_recv(rdma_trans, task_ptr->sge.addr);
+			msg = (struct dhmp_msg *) malloc(sizeof(struct dhmp_msg));
+			/*read the msg content from the task_ptr sge addr*/
+			msg->msg_type=*(enum dhmp_msg_type*)task_ptr->sge.addr;
+			msg->data_size=*(size_t*)(task_ptr->sge.addr+sizeof(enum dhmp_msg_type));
+			msg->data=task_ptr->sge.addr+sizeof(enum dhmp_msg_type)+sizeof(size_t);
+			
+			MICA_TIME_COUNTER_INIT();
+			dhmp_wc_recv_handler(rdma_trans, msg, &is_async);
+			// dhmp_post_recv 需要放到多线程的末尾去处理
+			// 发送双边操作的数据大小不能超过  SINGLE_NORM_RECV_REGION （16MB）
+			if (! is_async)
+			{
+				dhmp_post_recv(rdma_trans, task_ptr->sge.addr);
+				free(msg);
+			}
+			MICA_TIME_COUNTER_CAL("dhmp_wc_recv_handler");
 			break;
 		case IBV_WC_RDMA_WRITE:
 #ifdef DHMP_MR_REUSE_POLICY

@@ -5,6 +5,7 @@
 #include "dhmp_client.h"
 #include "dhmp_log.h"
 #include "mid_rdma_utils.h"
+#include <sys/select.h>
 
 int dhmp_memory_register(struct ibv_pd *pd, 
 									struct dhmp_mr *dmr, size_t length)
@@ -73,4 +74,13 @@ int bit_count(int id)
 		c++;
 	}
 	return c;
+}
+
+void 
+sleep_ms(unsigned int secs)
+{
+    struct timeval tval;
+    tval.tv_sec=secs/1000;
+    tval.tv_usec=(secs*1000)%1000000;
+    select(0,NULL,NULL,NULL, &tval);
 }

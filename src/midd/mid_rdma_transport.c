@@ -66,10 +66,8 @@ void dhmp_post_all_recv(struct dhmp_transport *rdma_trans)
 	
 	// DEBUG_LOG("post recv nums is %d", RECV_REGION_SIZE/single_region_size);
 	for(i=0; i<RECV_REGION_SIZE/single_region_size; i++)
-	{
-		dhmp_post_recv(rdma_trans, 
-			rdma_trans->recv_mr.addr+i*single_region_size);
-	}
+		dhmp_post_recv(rdma_trans, rdma_trans->recv_mr.addr+i*single_region_size);
+	
 }
 
 

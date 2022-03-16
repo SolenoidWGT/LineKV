@@ -12,9 +12,9 @@
 #include "dhmp_log.h"
 
 struct test_kv *
-generate_test_data(size_t key_offset, size_t val_offset, size_t value_length, size_t kv_nums)
+generate_test_data(size_t key_offset, size_t val_offset, size_t value_length, size_t kv_nums, size_t node_nums)
 {
-    size_t i;
+    size_t i,j;
     struct test_kv *kvs_group;
     kvs_group = (struct test_kv *) malloc(sizeof(struct test_kv) * kv_nums);
     memset(kvs_group, 0, sizeof(struct test_kv) * kv_nums);
@@ -31,6 +31,10 @@ generate_test_data(size_t key_offset, size_t val_offset, size_t value_length, si
         kvs_group[i].key = (uint8_t *)malloc(kvs_group[i].true_key_length);
         kvs_group[i].value = (uint8_t*) malloc(kvs_group[i].true_value_length);
         kvs_group[i].key_hash = hash(kvs_group[i].key, kvs_group[i].true_key_length );
+
+        // 注意我们 get 回来的数据需要考虑到 header 和 tail 的大小
+        for (j=0; j<node_nums; j++)
+            kvs_group[i].get_value[j] = (uint8_t*) malloc(kvs_group[i].true_value_length + VALUE_HEADER_LEN + VALUE_TAIL_LEN);
 
         memset(kvs_group[i].value, (int)(i+val_offset), kvs_group[i].true_value_length);
         memcpy(kvs_group[i].key, &key, kvs_group[i].true_key_length);

@@ -24,9 +24,11 @@
 
 #include "midd_mica_benchmark.h"
 
-#define TEST_KV_NUMS  8
+#define TEST_KV_NUMS  64
+// #define TEST_KV_NUMS 2
 
 volatile bool replica_is_ready = true;
+bool ica_cli_get(struct test_kv *kv_entry, void *user_buff, size_t *out_value_length, size_t target_id, size_t tag);
 
 struct dhmp_client *  
 dhmp_test_client_init(size_t buffer_size)
@@ -37,29 +39,85 @@ dhmp_test_client_init(size_t buffer_size)
 	return re_cli;
 }
 
-uint8_t* mica_cli_get(struct test_kv *kv_entry, size_t *out_value_length)
+
+// 
+bool
+mica_cli_get(struct test_kv *kv_entry, void *user_buff, size_t *out_value_length, size_t target_id, size_t tag)
 {
-    struct dhmp_mica_get_response *get_result =\
-             mica_get_remote_warpper(0, kv_entry->key_hash, kv_entry->key, kv_entry->true_key_length, false, NULL, MAIN, client_mgr->self_node_id);
-    
-    if (get_result == NULL || get_result->out_value_length == (size_t) - 1)
+    bool re;
+    struct dhmp_mica_get_response *resp;
+    struct dhmp_mica_get_reuse_ptr reuse_ptrs;
+    reuse_ptrs.req_base_ptr = NULL;
+    reuse_ptrs.resp_ptr = NULL;
+
+Get_Retry:
+    mica_get_remote_warpper(0, \
+                        kv_entry->key_hash, \
+                        kv_entry->key, \
+                        kv_entry->true_key_length, \
+                        false, \
+                        NULL,\
+                        target_id, \
+                        client_mgr->self_node_id, \
+                        *out_value_length, \
+                        tag, \
+                        &reuse_ptrs);
+
+    resp = reuse_ptrs.resp_ptr;
+    if (resp  == NULL)
     {
         ERROR_LOG("MICA get key %lx failed!", kv_entry->key_hash);
         Assert(false);
     }
-    if (get_result->partial == true)
+
+    INFO_LOG("switch");
+
+    switch (resp->status)
     {
-        ERROR_LOG("value too long!");
-        Assert(false);
+        case MICA_GET_SUCESS:
+            INFO_LOG("MICA_GET_SUCESS length is [%ld]", resp->out_value_length);
+            *out_value_length = resp->out_value_length;
+            // 将数据从 recv_region 中拷贝出去，然后就可以发布 recv 任务了
+            memcpy(user_buff, resp->msg_buff_addr, resp->out_value_length);
+            INFO_LOG("memcpy");
+            // 释放接受缓冲区,此时该块缓冲区就可以被其他的任务可见
+            dhmp_post_recv(resp->trans_data.rdma_trans, resp->trans_data.msg->data - sizeof(enum dhmp_msg_type) - sizeof(size_t));
+            re = true;
+            INFO_LOG("dhmp_post_recv");
+            break;
+        case MICA_NO_KEY:
+            ERROR_LOG("Tag [%d] not found key from node [%d]!", tag, target_id);
+            re = false;
+            break;
+        case MICA_VERSION_IS_DIRTY:
+            ERROR_LOG("Tag [%d] key from node [%d] is dirty, retry!", tag, target_id);
+            goto Get_Retry;
+        case MICA_GET_PARTIAL:
+            ERROR_LOG("Tag [%d] value too long to store in buffer from node [%d]!", tag, target_id);
+            re = false;
+            break;
+        default:
+            ERROR_LOG("Tag [%d] Unknow get status Node[%ld]", tag, target_id);
+            re = false;
+            break;
     }
-    *out_value_length = get_result->out_value_length;
-    return get_result->out_value;
+
+    // 释放所有指针
+    free(container_of(&(resp->trans_data.msg->data), struct dhmp_msg , data));
+    free(reuse_ptrs.req_base_ptr);
+    free(reuse_ptrs.resp_ptr);
+    INFO_LOG("free");
+    return re;
 }
 
 int main(int argc,char *argv[])
 {
-    int i;
+    int i, j, reval;
     struct test_kv * kvs;
+    struct timespec start_t, end_t;
+    long long int total_time=0, total_set_time;
+
+    Assert(TEST_KV_NUMS < TABLE_BUCKET_NUMS);
 
     for (i = 0; i<argc; i++)
 	{
@@ -69,13 +127,23 @@ int main(int argc,char *argv[])
 
     INFO_LOG("MICA_MIDD_TEST_client");
     client_mgr = dhmp_client_init(INIT_DHMP_CLIENT_BUFF_SIZE, true);
-    kvs = generate_test_data(1, 1, 1024-VALUE_HEADER_LEN-VALUE_TAIL_LEN, TEST_KV_NUMS);
+    client_mgr->self_node_id = CLINET_ID;   // 客户端不需要在 config 文件中出现，但是仍然需要显式指定一个 Node ID
+
+    for (i=0; i<client_mgr->config.nets_cnt; i++)
+    {
+        INFO_LOG("CONNECT BEGIN: create the [%d]-th normal transport.",i);
+        reval = mica_clinet_connect_server(INIT_DHMP_CLIENT_BUFF_SIZE, i);
+        if (reval == -1)
+            Assert(false);
+    }
+
+    kvs = generate_test_data(1, 1, 1024-VALUE_HEADER_LEN-VALUE_TAIL_LEN, TEST_KV_NUMS, client_mgr->config.nets_cnt);
     Assert(client_mgr);
 
     for (i = 0; i < TEST_KV_NUMS; i++)
     {
         bool is_update = false;
-
+        clock_gettime(CLOCK_MONOTONIC, &start_t);	
         mica_set_remote_warpper(0, 
                                 kvs[i].key,
                                 kvs[i].key_hash, 
@@ -87,29 +155,54 @@ int main(int argc,char *argv[])
                                 NULL,
                                 MAIN,
                                 is_update,
-                                client_mgr->self_node_id);
-        
-        INFO_LOG("Mica test clinet set [%d] key success");
+                                client_mgr->self_node_id,
+                                (size_t)i);
+
+    	clock_gettime(CLOCK_MONOTONIC, &end_t);			    	
+		total_time += (((end_t.tv_sec * 1000000000) + end_t.tv_nsec) - ((start_t.tv_sec * 1000000000) + start_t.tv_nsec)); 
+        // ERROR_LOG("Mica test clinet set tag [%d] key success", i);
     }
 
-    for (i = 0; i < TEST_KV_NUMS; i++)
-    {
-        // 和main节点的数据进行比较
-        size_t out_value_length;
-        // 使用远端接口get回来的value包含了元数据，需要去掉元数据获得真实数据
-        uint8_t * value = mica_cli_get(&kvs[i], &out_value_length);
-        value = value + VALUE_HEADER_LEN;
-        out_value_length = out_value_length - VALUE_HEADER_LEN - VALUE_TAIL_LEN;
-        // if (!cmp_item_all_value(get_result->out_value_length, get_result->out_value, MEHCACHED_VALUE_LENGTH(item->kv_length_vec), item_get_value_addr(item)))
+    INFO_LOG("Mica clinet set all keys!");
+    total_set_time = total_time;
+    total_time=0;
 
-        if (!cmp_item_all_value(out_value_length, value, kvs[i].true_value_length, kvs[i].value))
+    for (j=0; j<client_mgr->config.nets_cnt; j++)
+    {
+        INFO_LOG("Mica clinet get key form node [%d]!", j);
+        for (i = 0; i < TEST_KV_NUMS; i++)
         {
-            ERROR_LOG("Key id [%d] value is not consistent with main node!", i);
-            Assert(false);
+            // 和main节点的数据进行比较
+            uint8_t *value_addr = NULL;
+            size_t out_value_length = kvs[i].true_value_length + VALUE_HEADER_LEN + VALUE_TAIL_LEN;
+            // 使用远端接口get回来的value包含了元数据，需要去掉元数据获得真实数据
+
+            clock_gettime(CLOCK_MONOTONIC, &start_t);	
+            reval = mica_cli_get(&kvs[i], kvs[i].get_value[j],  &out_value_length, (size_t)j, (size_t)i);
+            if (reval == false)
+            {
+                ERROR_LOG("Mica clinet get key tag [%d] form node [%d] ERROR!", i, j);
+                Assert(false);
+            }
+            clock_gettime(CLOCK_MONOTONIC, &end_t);	
+            total_time += (((end_t.tv_sec * 1000000000) + end_t.tv_nsec) - ((start_t.tv_sec * 1000000000) + start_t.tv_nsec)); 
+
+            INFO_LOG("mica_cli_get");
+            value_addr = kvs[i].get_value[j];
+            value_addr = value_addr + VALUE_HEADER_LEN;
+            out_value_length = out_value_length - VALUE_HEADER_LEN - VALUE_TAIL_LEN;
+            // if (!cmp_item_all_value(get_result->out_value_length, get_result->out_value, MEHCACHED_VALUE_LENGTH(item->kv_length_vec), item_get_value_addr(item)))
+
+            if (!cmp_item_all_value(out_value_length, value_addr, kvs[i].true_value_length, kvs[i].value))
+            {
+                ERROR_LOG("Key id [%d] value is not consistent with main node!", i);
+                Assert(false);
+            }
         }
 
-        INFO_LOG("Mica test clinet set [%d] compare success");
+        ERROR_LOG("avg set time: [%lld]us", total_set_time /( US_BASE * TEST_KV_NUMS));
+        ERROR_LOG("avg get time: [%lld]us", total_time / (US_BASE * TEST_KV_NUMS * client_mgr->config.nets_cnt));
+        ERROR_LOG("MICA_MIDD_TEST_client from node [%d] FINISH!", j);
     }
-    INFO_LOG("MICA_MIDD_TEST_client FINISH!");
     return 0;
 }

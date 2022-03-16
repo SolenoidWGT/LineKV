@@ -30,6 +30,7 @@ struct dhmp_client{
 	struct list_head send_mr_list;
 
 	int fifo_node_index;	/*use for node select*/
+	int conn_index;	/*指出当前可用connect_trans数组中的位置*/
 
 	pthread_t work_thread1;
 	pthread_t work_thread2;

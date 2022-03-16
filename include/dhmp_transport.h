@@ -8,16 +8,21 @@
 #define ADDR_RESOLVE_TIMEOUT 500
 #define ROUTE_RESOLVE_TIMEOUT 500
 
-#define RECV_REGION_SIZE (128*1024*1024)
-#define SEND_REGION_SIZE (128*1024*1024)
+#define RECV_REGION_SIZE (1024*1024*1024)
+#define SEND_REGION_SIZE (1024*1024*1024)
+
+// #define SINGLE_POLL_RECV_REGION_KV (64*1024)
+// #define SINGLE_NORM_RECV_REGION_KV (64*1024)
 
 /*recv region include poll recv region,normal recv region*/
-#define SINGLE_POLL_RECV_REGION (16*1024*1024)
-#define SINGLE_NORM_RECV_REGION (16*1024*1024)
+// 由于我们初始化时候需要交换大量的注册地址信息，目前只是通过一个 send/recv 完成，如果
+// recv_region 太小，就会报 IBV_WC_LOC_LEN_ERR (1) - Local Length Error 的错误
+#define SINGLE_POLL_RECV_REGION (8*1024*1024)
+#define SINGLE_NORM_RECV_REGION (8*1024*1024)
 
 
 void dhmp_comp_channel_handler(int fd, void* data);
-void dhmp_wc_recv_handler(struct dhmp_transport* rdma_trans, struct dhmp_msg* msg);
+void dhmp_wc_recv_handler(struct dhmp_transport* rdma_trans, struct dhmp_msg* msg, bool *is_async);
 
 
 enum dhmp_transport_state {
@@ -150,5 +155,7 @@ int dhmp_rdma_write_mica_warpper (struct dhmp_transport* rdma_trans,
 						struct ibv_mr* mr, 
 						size_t length,
 						uintptr_t remote_addr);
+
+int mica_clinet_connect_server(int buffer_size, int target_id);
 #endif
 

@@ -24,15 +24,19 @@ mica_set_remote_warpper(uint8_t current_alloc_id,
 				struct set_requset_pack * req_callback_ptr,
 				size_t target_id,
 				bool is_update,
-				size_t self_node_id);
+				size_t self_node_id,
+				size_t tag);
 
-struct dhmp_mica_get_response*
+void
 mica_get_remote_warpper(uint8_t current_alloc_id,  uint64_t key_hash, const uint8_t *key, 
 				size_t key_length, 
 				bool is_async, 
 				struct set_requset_pack * req_callback_ptr,
 				size_t target_id,
-				size_t self_node_id);
+				size_t self_node_id,
+				size_t expect_length,
+				size_t tag,
+				struct dhmp_mica_get_reuse_ptr *reuse_ptrs);
 
 
 size_t
@@ -43,5 +47,6 @@ mica_set_remote(uint8_t current_alloc_id,  uint64_t key_hash, const uint8_t *key
 				struct set_requset_pack * req_callback_ptr,
 				size_t target_id,
 				bool is_update,
-				size_t self_node_id);
+				size_t self_node_id,
+				size_t tag);
 #endif

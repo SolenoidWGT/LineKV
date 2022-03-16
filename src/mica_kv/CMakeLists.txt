@@ -89,9 +89,13 @@ if(NOT "${NLOCAL}" STREQUAL "yes")
 	# server
 	add_executable(mica midd_mica_server.c ${SOURCES})
 	add_executable(cli_mica midd_mica_client.c ${SOURCES})
-	target_link_libraries(mica ${LIBRARIES})
+	target_link_libraries(mica ${LIBRARIES} )
+	target_link_libraries(mica pthread)
+
 	# target_link_libraries(cli_mica ${LIBRARIES_cli})
+
 	target_link_libraries(cli_mica ${LIBRARIES})
+	target_link_libraries(cli_mica pthread)
     # target_link_libraries(ibtest middlib)
     # target_link_libraries(ibtest xml2)
     # target_link_libraries(ibtest pthread)

@@ -298,6 +298,7 @@ mehcached_alloc_extra_bucket(struct mehcached_table *table, struct mehcached_buc
 
     if (table->extra_bucket_free_list.head == 0)
     {
+        ERROR_LOG("extra_bucket_free_list.head == 0!!!");
         mehcached_unlock_extra_bucket_free_list(table);
         return false;
     }
@@ -829,7 +830,7 @@ mehcached_prefetch_alloc(struct mehcached_prefetch_state *in_out_prefetch_state)
 bool
 mehcached_get(uint8_t current_alloc_id MEHCACHED_UNUSED, struct mehcached_table *table, uint64_t key_hash,
  const uint8_t *key, size_t key_length, uint8_t *out_value, size_t *in_out_value_length,
-  uint32_t *out_expire_time, bool readonly MEHCACHED_UNUSED, bool get_true_value)
+  uint32_t *out_expire_time, bool readonly MEHCACHED_UNUSED, bool get_true_value, MICA_GET_STATUS *get_status)
 {
     Assert(key_length <= MEHCACHED_MAX_KEY_LENGTH);
 
@@ -852,6 +853,7 @@ mehcached_get(uint8_t current_alloc_id MEHCACHED_UNUSED, struct mehcached_table 
             if (version_start != mehcached_read_version_end(table, bucket))
                 continue;
             MEHCACHED_STAT_INC(table, get_notfound);
+            *get_status=MICA_NO_KEY;
             return false;
         }
 
@@ -882,7 +884,7 @@ mehcached_get(uint8_t current_alloc_id MEHCACHED_UNUSED, struct mehcached_table 
                     INFO_LOG("*****Log table has latest data, get from log table!*****");
                     return mehcached_get(current_alloc_id, log_table, key_hash, key, \
                                             key_length, out_value, in_out_value_length, \
-                                            out_expire_time, readonly, get_true_value);
+                                            out_expire_time, readonly, get_true_value, get_status);
                 }
                 else
                     INFO_LOG("*****Main table has latest data, get from Main table!*****");
@@ -905,6 +907,7 @@ mehcached_get(uint8_t current_alloc_id MEHCACHED_UNUSED, struct mehcached_table 
              !IS_MIRROR(server_instance->server_type) &&
             check_version_is_same(item, value_length, MEHCACHED_ROUNDUP8(key_length)) == false)
         {
+            *get_status=MICA_VERSION_IS_DIRTY;
             ERROR_LOG("version is not equal, need peer node retry");
             return false;
         }
@@ -933,6 +936,7 @@ mehcached_get(uint8_t current_alloc_id MEHCACHED_UNUSED, struct mehcached_table 
         {
             if (value_length > *in_out_value_length)
             {
+                *get_status=MICA_GET_PARTIAL;
                 partial_value = true;
                 value_length = *in_out_value_length;
                 Assert(false);
@@ -946,6 +950,7 @@ mehcached_get(uint8_t current_alloc_id MEHCACHED_UNUSED, struct mehcached_table 
         {
             if (GET_TRUE_VALUE_LEN(value_length) > *in_out_value_length)
             {
+                *get_status=MICA_GET_PARTIAL;
                 partial_value = true;
                 value_length = *in_out_value_length;
                 Assert(false);
@@ -1078,7 +1083,7 @@ mehcached_get(uint8_t current_alloc_id MEHCACHED_UNUSED, struct mehcached_table 
     if (*in_out_value_length > 1500)
         Assert(false);
 #endif
-
+    *get_status=MICA_GET_SUCESS;
     return true;
 }
 
@@ -1724,15 +1729,14 @@ midd_mehcached_set_warpper(uint8_t current_alloc_id, struct mehcached_table *tab
 bool
 mid_mehcached_get_warpper(uint8_t current_alloc_id MEHCACHED_UNUSED, struct mehcached_table *table, uint64_t key_hash,
                             const uint8_t *key, size_t key_length, uint8_t *out_value, size_t *in_out_value_length,
-                            uint32_t *out_expire_time, bool readonly MEHCACHED_UNUSED, bool get_true_value)
+                            uint32_t *out_expire_time, bool readonly MEHCACHED_UNUSED, bool get_true_value, MICA_GET_STATUS *get_status)
 {
     return mehcached_get(current_alloc_id, table, key_hash, key, 
                             key_length + KEY_HEADER_LEN, 
                             out_value, 
                             in_out_value_length, 
-                            out_expire_time, readonly, get_true_value);
+                            out_expire_time, readonly, get_true_value, get_status);
 }    
-
 
 struct mehcached_item * 
 find_item(struct mehcached_table *table, uint64_t key_hash, const uint8_t* key, size_t key_length)
@@ -1778,21 +1782,6 @@ get_item_by_offset(struct mehcached_table *table, uint64_t item_offset)
     key_length = MEHCACHED_KEY_LENGTH(item->kv_length_vec);
     INFO_LOG("item mapping_id is %d, value_length is %lu, key_length is %lu", item->mapping_id, value_length, key_length);
     return item;
-}
-
-uint8_t *
-item_get_key_addr(struct mehcached_item *item)
-{
-    // size_t value_length = MEHCACHED_VALUE_LENGTH(item->kv_length_vec);
-    // size_t key_length = MEHCACHED_ROUNDUP8(MEHCACHED_KEY_LENGTH(item->kv_length_vec));
-    return item->data;
-}
-
-uint8_t *
-item_get_value_addr(struct mehcached_item *item)
-{
-    size_t key_length = MEHCACHED_ROUNDUP8(MEHCACHED_KEY_LENGTH(item->kv_length_vec));
-    return item->data + key_length;
 }
 
 // 将 key 的长度减去 KEY_HEADER_LEN
@@ -1932,6 +1921,29 @@ get_item_value_tail_version(struct mehcached_item * item)
     value_base = (struct midd_value_header *)(item->data + align_key_length);
     value_tail = (struct midd_value_tail   *)((uint8_t*) value_base + value_length - VALUE_TAIL_LEN);
     return &value_tail->version;
+}
+
+// 由于 key 的元数据位于尾部，所以 item->data 就是实际的 key 的起始地址
+uint8_t *
+item_get_key_addr(struct mehcached_item *item)
+{
+    // size_t value_length = MEHCACHED_VALUE_LENGTH(item->kv_length_vec);
+    // size_t key_length = MEHCACHED_ROUNDUP8(MEHCACHED_KEY_LENGTH(item->kv_length_vec));
+    return item->data;
+}
+
+uint8_t *
+item_get_value_addr(struct mehcached_item *item)
+{
+    size_t key_length = MEHCACHED_ROUNDUP8(MEHCACHED_KEY_LENGTH(item->kv_length_vec));
+    return item->data + key_length;
+}
+
+uint8_t *
+item_get_true_value_addr(struct mehcached_item *item)
+{
+    size_t key_length = MEHCACHED_ROUNDUP8(MEHCACHED_KEY_LENGTH(item->kv_length_vec));
+    return item->data + key_length + VALUE_HEADER_LEN;
 }
 
 // 主节点上的 main_table 和 log_table 的偏移量是不确定的

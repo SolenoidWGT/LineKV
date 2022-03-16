@@ -21,4 +21,5 @@ int dhmp_memory_register(struct ibv_pd *pd,
 
 
 extern int bit_count(int id);
+void  sleep_ms(unsigned int secs);
 #endif

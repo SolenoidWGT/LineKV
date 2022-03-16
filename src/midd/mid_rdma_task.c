@@ -45,7 +45,7 @@ dhmp_recv_task_create(struct dhmp_transport* rdma_trans,
 	/*according to the flag of is_poll_qp,
 	 decide to post what size sge*/
 	recv_task->sge.length=SINGLE_NORM_RECV_REGION;
-	
+
 	recv_task->sge.lkey=rdma_trans->recv_mr.mr->lkey;
 	recv_task->rdma_trans=rdma_trans;
 
