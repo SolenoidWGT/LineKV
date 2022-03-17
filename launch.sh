@@ -60,6 +60,6 @@ sleep 10
 # launch mica_client 
 mulitiRun 0 1 "cli_mica"
 # wait mica_client test finished!
-sleep 15
+sleep 20
 
 killAllProcess

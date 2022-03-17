@@ -10,6 +10,48 @@
 #include "hash.h"
 #include "dhmp.h"
 #include "dhmp_log.h"
+#include "midd_mica_benchmark.h"
+
+const double A = 1.3;  
+const double C = 1.0;  
+double pf[TEST_KV_NUM]; 
+int rand_num[TEST_KV_NUM]={0};
+
+// 生成符合Zipfian分布的数据
+void generate()
+{
+    int i;
+    double sum = 0.0;
+ 
+    for (i = 0; i < TEST_KV_NUM; i++)
+        sum += C/pow((double)(i+2), A);
+
+    for (i = 0; i < TEST_KV_NUM; i++)
+    {
+        if (i == 0)
+            pf[i] = C/pow((double)(i+2), A)/sum;
+        else
+            pf[i] = pf[i-1] + C/pow((double)(i+2), A)/sum;
+    }
+}
+
+// 根据Zipfian分布生成索引
+void pick(int max_num)
+{
+	int i, index;
+
+    generate();
+
+    srand(time(0));
+    for ( i= 0; i < max_num; i++)
+    {
+        index = 0;
+        double data = (double)rand()/RAND_MAX; 
+        while (index<(max_num)&&data > pf[index])   
+            index++;
+		rand_num[i]=index;
+    }
+}
 
 struct test_kv *
 generate_test_data(size_t key_offset, size_t val_offset, size_t value_length, size_t kv_nums, size_t node_nums)
@@ -22,6 +64,7 @@ generate_test_data(size_t key_offset, size_t val_offset, size_t value_length, si
     for (i = 0; i < kv_nums; i++)
     {
         size_t key = i + key_offset;
+        // size_t key = 314156;
         // size_t value = i + offset;
         // uint64_t key_hash = hash((const uint8_t *)&key, sizeof(key));
         // value_length = sizeof(value) > value_length ? sizeof(value) : value_length;
@@ -32,8 +75,8 @@ generate_test_data(size_t key_offset, size_t val_offset, size_t value_length, si
         kvs_group[i].value = (uint8_t*) malloc(kvs_group[i].true_value_length);
         kvs_group[i].key_hash = hash(kvs_group[i].key, kvs_group[i].true_key_length );
 
-        // 注意我们 get 回来的数据需要考虑到 header 和 tail 的大小
-        for (j=0; j<node_nums; j++)
+        // 注意我们 get 回来的数据需要  考虑到 header 和 tail 的大小
+        for (j=0; j<1; j++) // 暂时只开一个缓冲区
             kvs_group[i].get_value[j] = (uint8_t*) malloc(kvs_group[i].true_value_length + VALUE_HEADER_LEN + VALUE_TAIL_LEN);
 
         memset(kvs_group[i].value, (int)(i+val_offset), kvs_group[i].true_value_length);

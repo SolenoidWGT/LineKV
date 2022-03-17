@@ -24,11 +24,9 @@
 
 #include "midd_mica_benchmark.h"
 
-#define TEST_KV_NUMS  64
-// #define TEST_KV_NUMS 2
-
 volatile bool replica_is_ready = true;
 bool ica_cli_get(struct test_kv *kv_entry, void *user_buff, size_t *out_value_length, size_t target_id, size_t tag);
+struct test_kv * kvs;
 
 struct dhmp_client *  
 dhmp_test_client_init(size_t buffer_size)
@@ -38,7 +36,6 @@ dhmp_test_client_init(size_t buffer_size)
 	re_cli->is_test_clinet = true;
 	return re_cli;
 }
-
 
 // 
 bool
@@ -110,37 +107,84 @@ Get_Retry:
     return re;
 }
 
-int main(int argc,char *argv[])
+// 1：1
+void workloada()
+{
+	int i = 0, j;
+    size_t idx;
+	int read_num,update_num;
+	read_num = ACCESS_NUM /2;
+	update_num = ACCESS_NUM /2;
+    struct timespec start_t, end_t;
+    long long int set_time=0, get_time=0;
+
+    // 生成Zipfian数据
+    pick(TEST_KV_NUM);
+    INFO_LOG("pick");
+
+    size_t out_value_length;
+    bool is_update=false;   // is_update 这个参数是不生效的，不会对其进行检查
+	for(;i < ACCESS_NUM ;i++)
+	{
+		j = i % TEST_KV_NUM;
+        idx = (size_t)rand_num[j];
+		srand((unsigned int)i);
+		int suiji = rand()%(read_num+update_num);
+        size_t suiji_node = (size_t) (rand()%(client_mgr->config.nets_cnt - 2));  // 只从副本节点读取
+		{
+			if(suiji < read_num)
+			{
+				read_num--;
+                out_value_length = kvs[idx].true_value_length + VALUE_HEADER_LEN + VALUE_TAIL_LEN;
+                INFO_LOG("read from node [%ld], tag is [%ld]", suiji_node, idx);
+				// addr_table_read(addr_table[rand_num[j]],local_buf);
+                clock_gettime(CLOCK_MONOTONIC, &start_t);	
+                mica_cli_get(&kvs[idx], \
+                              kvs[idx].get_value[0], \
+                              &out_value_length, \
+                              suiji_node, \
+                              idx);
+                clock_gettime(CLOCK_MONOTONIC, &end_t);	
+                get_time += (((end_t.tv_sec * 1000000000) + end_t.tv_nsec) - ((start_t.tv_sec * 1000000000) + start_t.tv_nsec)); 
+			}
+			else
+			{
+				update_num --;
+				// addr_table_update(addr_table[rand_num[j]],local_buf);
+                INFO_LOG("set tag is [%ld]", idx);
+                clock_gettime(CLOCK_MONOTONIC, &start_t);	
+                mica_set_remote_warpper(0, 
+                                        kvs[idx].key,
+                                        kvs[idx].key_hash, 
+                                        kvs[idx].true_key_length, 
+                                        kvs[idx].value,
+                                        kvs[idx].true_value_length, 
+                                        0, true,
+                                        false, 
+                                        NULL,
+                                        MAIN,
+                                        is_update,
+                                        client_mgr->self_node_id,
+                                        (size_t)idx);
+                clock_gettime(CLOCK_MONOTONIC, &end_t);	
+                set_time += (((end_t.tv_sec * 1000000000) + end_t.tv_nsec) - ((start_t.tv_sec * 1000000000) + start_t.tv_nsec)); 
+			}
+		}
+
+        if (i % 1000 == 0)
+            ERROR_LOG("Count [%d]", i);
+	}
+    ERROR_LOG("workloada test FINISH! avg get time is [%ld]us, avg set time is [%ld]us",  get_time /( US_BASE * ACCESS_NUM /2), set_time /( US_BASE * ACCESS_NUM /2));
+}
+
+void debug_test()
 {
     int i, j, reval;
-    struct test_kv * kvs;
-    struct timespec start_t, end_t;
     long long int total_time=0, total_set_time;
-
-    Assert(TEST_KV_NUMS < TABLE_BUCKET_NUMS);
-
-    for (i = 0; i<argc; i++)
-	{
-		CLINET_ID = (size_t)(*argv[i] - '0');
-        INFO_LOG("Client is %d", CLINET_ID);
-	}
-
-    INFO_LOG("MICA_MIDD_TEST_client");
-    client_mgr = dhmp_client_init(INIT_DHMP_CLIENT_BUFF_SIZE, true);
-    client_mgr->self_node_id = CLINET_ID;   // 客户端不需要在 config 文件中出现，但是仍然需要显式指定一个 Node ID
-
-    for (i=0; i<client_mgr->config.nets_cnt; i++)
-    {
-        INFO_LOG("CONNECT BEGIN: create the [%d]-th normal transport.",i);
-        reval = mica_clinet_connect_server(INIT_DHMP_CLIENT_BUFF_SIZE, i);
-        if (reval == -1)
-            Assert(false);
-    }
-
-    kvs = generate_test_data(1, 1, 1024-VALUE_HEADER_LEN-VALUE_TAIL_LEN, TEST_KV_NUMS, client_mgr->config.nets_cnt);
+    struct timespec start_t, end_t;
     Assert(client_mgr);
 
-    for (i = 0; i < TEST_KV_NUMS; i++)
+    for (i = 0; i < TEST_KV_NUM; i++)
     {
         bool is_update = false;
         clock_gettime(CLOCK_MONOTONIC, &start_t);	
@@ -170,7 +214,7 @@ int main(int argc,char *argv[])
     for (j=0; j<client_mgr->config.nets_cnt; j++)
     {
         INFO_LOG("Mica clinet get key form node [%d]!", j);
-        for (i = 0; i < TEST_KV_NUMS; i++)
+        for (i = 0; i < TEST_KV_NUM; i++)
         {
             // 和main节点的数据进行比较
             uint8_t *value_addr = NULL;
@@ -178,7 +222,12 @@ int main(int argc,char *argv[])
             // 使用远端接口get回来的value包含了元数据，需要去掉元数据获得真实数据
 
             clock_gettime(CLOCK_MONOTONIC, &start_t);	
-            reval = mica_cli_get(&kvs[i], kvs[i].get_value[j],  &out_value_length, (size_t)j, (size_t)i);
+            reval = mica_cli_get(&kvs[i], \
+                                  kvs[i].get_value[0], \
+                                  &out_value_length, \
+                                  (size_t)j, \
+                                  (size_t)i);
+
             if (reval == false)
             {
                 ERROR_LOG("Mica clinet get key tag [%d] form node [%d] ERROR!", i, j);
@@ -188,7 +237,7 @@ int main(int argc,char *argv[])
             total_time += (((end_t.tv_sec * 1000000000) + end_t.tv_nsec) - ((start_t.tv_sec * 1000000000) + start_t.tv_nsec)); 
 
             INFO_LOG("mica_cli_get");
-            value_addr = kvs[i].get_value[j];
+            value_addr = kvs[i].get_value[0];
             value_addr = value_addr + VALUE_HEADER_LEN;
             out_value_length = out_value_length - VALUE_HEADER_LEN - VALUE_TAIL_LEN;
             // if (!cmp_item_all_value(get_result->out_value_length, get_result->out_value, MEHCACHED_VALUE_LENGTH(item->kv_length_vec), item_get_value_addr(item)))
@@ -200,9 +249,37 @@ int main(int argc,char *argv[])
             }
         }
 
-        ERROR_LOG("avg set time: [%lld]us", total_set_time /( US_BASE * TEST_KV_NUMS));
-        ERROR_LOG("avg get time: [%lld]us", total_time / (US_BASE * TEST_KV_NUMS * client_mgr->config.nets_cnt));
+        ERROR_LOG("avg set time: [%lld]us", total_set_time /( US_BASE * TEST_KV_NUM));
+        ERROR_LOG("avg get time: [%lld]us", total_time / (US_BASE * TEST_KV_NUM * client_mgr->config.nets_cnt));
         ERROR_LOG("MICA_MIDD_TEST_client from node [%d] FINISH!", j);
     }
+}
+
+int main(int argc,char *argv[])
+{
+    Assert(TEST_KV_NUM < TABLE_BUCKET_NUMS);
+    int i, reval;
+    for (i = 0; i<argc; i++)
+	{
+		CLINET_ID = (size_t)(*argv[i] - '0');
+        INFO_LOG("Client is %d", CLINET_ID);
+	}
+
+    INFO_LOG("MICA_MIDD_TEST_client");
+    client_mgr = dhmp_client_init(INIT_DHMP_CLIENT_BUFF_SIZE, true);
+    client_mgr->self_node_id = CLINET_ID;   // 客户端不需要在 config 文件中出现，但是仍然需要显式指定一个 Node ID
+
+    for (i=0; i<client_mgr->config.nets_cnt; i++)
+    {
+        INFO_LOG("CONNECT BEGIN: create the [%d]-th normal transport.",i);
+        reval = mica_clinet_connect_server(INIT_DHMP_CLIENT_BUFF_SIZE, i);
+        if (reval == -1)
+            Assert(false);
+    }
+
+    kvs = generate_test_data(1, 1, 1024-VALUE_HEADER_LEN-VALUE_TAIL_LEN, TEST_KV_NUM, (size_t)client_mgr->config.nets_cnt);
+
+    workloada();
+
     return 0;
 }

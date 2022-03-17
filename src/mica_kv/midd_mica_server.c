@@ -18,8 +18,6 @@
 
 #include "midd_mica_benchmark.h"
 
-#define TEST_KV_NUMS    MEHCACHED_ITEMS_PER_BUCKET
-
 pthread_t nic_thread[PARTITION_NUMS];
 void* (*main_node_nic_thread_ptr) (void* );
 void* (*replica_node_nic_thread_ptr) (void* );
@@ -28,7 +26,7 @@ void test_set(struct test_kv * kvs);
 volatile bool replica_is_ready = false;
 static size_t SERVER_ID= (size_t)-1;
 
-struct test_kv kvs_group[TEST_KV_NUMS];
+struct test_kv kvs_group[TEST_KV_NUM];
 static void free_test_date();
 
 
@@ -38,7 +36,7 @@ void test_get_consistent(struct test_kv * kvs MEHCACHED_UNUSED)
 {
     // size_t i, nid;
     // INFO_LOG("---------------------------test_get_consistent!---------------------------");
-    // for (i = 0; i < TEST_KV_NUMS; i++)
+    // for (i = 0; i < TEST_KV_NUM; i++)
     // {
     //     const uint8_t* key = kvs[i].key;
     //     const uint8_t* value = kvs[i].value;
@@ -147,7 +145,7 @@ test_set(struct test_kv * kvs MEHCACHED_UNUSED)
     struct set_requset_pack *req_callback_ptr = (struct set_requset_pack *)\
             malloc(sizeof(struct set_requset_pack) * server_instance->node_nums);
                  
-    for (i = 0; i < TEST_KV_NUMS; i++)
+    for (i = 0; i < TEST_KV_NUM; i++)
     {
         bool is_update, is_maintable = true;
         struct mehcached_item * item;

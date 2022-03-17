@@ -7,6 +7,14 @@
  * @FilePath: /LineKV/include/midd_mica_benchmark.h
  */
 
+#define TEST_KV_NUM  64
+#define ACCESS_NUM 3000
+
+extern int rand_num[TEST_KV_NUM];
+
+void generate();
+void pick(int max_num);
+
 
 struct test_kv * generate_test_data(size_t key_offset, size_t val_offset, size_t value_length, size_t kv_nums, size_t node_nums);
 bool  cmp_item_value(size_t a_value_length, const uint8_t *a_out_value, size_t b_value_length,const uint8_t *b_out_value);

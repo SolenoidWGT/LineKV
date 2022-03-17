@@ -218,6 +218,8 @@ mica_set_remote(uint8_t current_alloc_id,  uint64_t key_hash, const uint8_t *key
 	// 设置 partition id
 	req_data->partition_id = (uint16_t)(key_hash >> 48) & (uint16_t)(PARTITION_NUMS  - 1);
 
+	Assert(req_data->partition_id>=0 && req_data->partition_id < PARTITION_NUMS);
+
 	if (target_id == MIRROR_NODE_ID ||
 		target_id == MAIN_NODE_ID)
 		memcpy(data_addr + key_length, value, GET_TRUE_VALUE_LEN(value_length));	// copy value, 注意这里拷贝不包含value的头部和尾部，所以需要远端节点自己进行元数据的更新
@@ -417,14 +419,19 @@ mica_replica_update_notify(uint64_t item_offset, int partition_id, int tag)
 	WARN_LOG("[mica_replica_update_notify] send tag [%ld]", tag);
 
 	if (!dhmp_post_send_info(target_id, base, total_length, NULL))
-		return;
+	{
+		ERROR_LOG("Send failed!");
+		Assert(false);
+	}
 
+	// 我们不用等待下游 nic 的确认
+/*
 	DEFINE_STACK_TIMER();
 	MICA_TIME_COUNTER_INIT();
 	while(req_msg->done_flag == false)
 		MICA_TIME_LIMITED(tag, TIMEOUT_LIMIT_MS);
 	MICA_TIME_COUNTER_CAL("mica_replica_update_notify");
-
+*/
 	free(base);
 }
 

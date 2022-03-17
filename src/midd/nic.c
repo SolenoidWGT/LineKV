@@ -11,8 +11,11 @@
 
 #include "mica_partition.h"
 
+struct list_head tmp_send_list;   
 struct list_head nic_send_list[PARTITION_NUMS];
-static uint64_t nic_sendQ_lock[PARTITION_NUMS];
+
+
+static volatile uint64_t nic_sendQ_lock[PARTITION_NUMS];
 static void memory_barrier();
 volatile bool nic_thread_ready = false;
 
@@ -82,6 +85,7 @@ makeup_update_request(struct mehcached_item * item, uint64_t item_offset, const 
 #endif
     
     nic_sending_queue_lock(nic_partition_id);
+    // memory_barrier();
     list_add(&up_req->sending_list,  &nic_send_list[nic_partition_id]);
     nic_list_length++;
     nic_sending_queue_unlock(nic_partition_id);
@@ -92,16 +96,19 @@ makeup_update_request(struct mehcached_item * item, uint64_t item_offset, const 
 // NIC 只负责发送数据部分
 void * main_node_nic_thread(void * args)
 {
-    struct list_head nic_local_send_list;
     int partition_id = (int) args;
+    int i;
 
     if (partition_id == 0)
-        memset(nic_sendQ_lock, 0, sizeof(uint64_t) * PARTITION_NUMS);
+    {
+        for (i=0 ;i<PARTITION_NUMS; i++)
+            nic_sendQ_lock[i] = 0UL;
+    }
 
     INFO_LOG("NIC thread [%d] launch!", partition_id);
     pthread_detach(pthread_self());
     INIT_LIST_HEAD(&nic_send_list[partition_id]);
-    INIT_LIST_HEAD(&nic_local_send_list);
+    INIT_LIST_HEAD(&tmp_send_list);
 
     nic_thread_ready = true;
     INFO_LOG("Node [%d] start nic thread!", server_instance->server_id);
@@ -119,12 +126,9 @@ void * main_node_nic_thread(void * args)
         // 拷贝发送链表头节点，并重新初始化发送链表为空
         // 减少锁的争抢
         nic_sending_queue_lock(partition_id);
-
-        list_replace(&nic_send_list[partition_id], &nic_local_send_list);
-        memory_barrier();
-        nic_send_list[partition_id].next = &nic_send_list[partition_id];
-        memory_barrier();
-        nic_send_list[partition_id].prev = &nic_send_list[partition_id];
+        //memory_barrier();
+        list_replace(&nic_send_list[partition_id], &tmp_send_list); // 将 nic_send_list 的内容转移到 tmp_send_list 上
+        INIT_LIST_HEAD(&nic_send_list[partition_id]);   // 清空 nic_send_list 链表
         nic_sending_queue_unlock(partition_id);
 
         /**
@@ -134,7 +138,7 @@ void * main_node_nic_thread(void * args)
          * @head:	the head for your list.
          * @member:	the name of the list_struct within the struct.
          */
-        list_for_each_entry_safe(send_req, temp_send_req, &nic_local_send_list, sending_list)
+        list_for_each_entry_safe(send_req, temp_send_req, &tmp_send_list, sending_list)
         {
             INFO_LOG("NIC send remote_addr %lu", send_req->write_info.remote_addr);
             void * key = item_get_key_addr(send_req->item);
@@ -151,11 +155,13 @@ void * main_node_nic_thread(void * args)
 
             list_del(&send_req->sending_list);
 
+            // 防止内存泄漏
+            free(send_req);
             nic_list_length--;
         }
 
         // 将本地头节点初始化为空
-        INIT_LIST_HEAD(&nic_local_send_list);
+        INIT_LIST_HEAD(&tmp_send_list);
     }
     pthread_exit(0);
 }
