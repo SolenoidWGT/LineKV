@@ -168,6 +168,7 @@ struct dhmp_client *  dhmp_client_init(size_t buffer_size, bool is_mica_cli)
 	// 客户端主动和主节点建立连接 
 	if (!is_mica_cli)
 	{
+#ifndef CRAQ
 		if(IS_MAIN(server_instance->server_type))
 		{
 			// 头节点需要主动和所有的node建立rdma连接，所有的node都是头节点的server
@@ -198,6 +199,10 @@ struct dhmp_client *  dhmp_client_init(size_t buffer_size, bool is_mica_cli)
 		if(IS_REPLICA(server_instance->server_type) && 
 				server_instance->node_nums > 3 &&
 				server_instance->server_id != server_instance->node_nums-1)
+#else
+		if(IS_REPLICA(server_instance->server_type) && 
+			server_instance->server_id != server_instance->node_nums-1)
+#endif
 		{
 			// 中间节点需要主动和下游节点建立rdma连接，只有下游节点是中间节点的server
 			int next_id = server_instance->server_id+1;
@@ -283,7 +288,7 @@ struct dhmp_server * dhmp_server_init(size_t server_id)
 					(unsigned int)server_instance->config.net_infos[server_instance->config.curnet_id].port);
 
 			server_instance->server_id = server_instance->config.curnet_id;
-
+#ifndef CRAQ
 			if (server_instance->config.nets_cnt < 3)
 			{
 				ERROR_LOG("Too few nodes to start system, at least node num is [3], now is [%d], exit!", \
@@ -308,7 +313,24 @@ struct dhmp_server * dhmp_server_init(size_t server_id)
 			// 非主节点的头副本节点
 			if (server_instance->server_id == 2)
 				SET_HEAD(server_instance->server_type);
+#else
+			// 所有节点都是副本节点
+			SET_REPLICA(server_instance->server_type);
 
+			if (server_instance->server_id == 0)
+			{
+				// SET_MAIN(server_instance->server_type);
+				SET_HEAD(server_instance->server_type);
+			}
+
+			// 尾节点单独 set 标志位
+			if (server_instance->server_id == server_instance->node_nums - 1)
+			{
+				SET_TAIL(server_instance->server_type);
+				INFO_LOG("Tail Node server_id is [%d] ", server_instance->server_id);
+			}
+
+#endif
 			MID_LOG("Server's node id is [%d], node_nums is [%d], server_type is %d", \
 					server_instance->server_id, server_instance->node_nums, server_instance->server_type);
 			break;

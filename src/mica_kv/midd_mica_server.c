@@ -23,9 +23,13 @@ void* (*main_node_nic_thread_ptr) (void* );
 void* (*replica_node_nic_thread_ptr) (void* );
 void test_set(struct test_kv * kvs);
 
-volatile bool replica_is_ready = false;
-static size_t SERVER_ID= (size_t)-1;
+#ifndef CRAQ
+volatile bool replica_is_ready = true;
+#else
+volatile bool replica_is_ready = true;
+#endif
 
+static size_t SERVER_ID= (size_t)-1;
 struct test_kv kvs_group[TEST_KV_NUM];
 static void free_test_date();
 
@@ -244,8 +248,8 @@ test_set(struct test_kv * kvs MEHCACHED_UNUSED)
 int main(int argc,char *argv[])
 {
     // 初始化集群 rdma 连接
-    int i, retval;
-    int nic_thread_num;
+    int i, retval MEHCACHED_UNUSED;
+    int nic_thread_num MEHCACHED_UNUSED;
     size_t numa_nodes[] = {(size_t)-1};;
     const size_t page_size = 1048576 * 2;
 	const size_t num_numa_nodes = 2;
@@ -278,6 +282,15 @@ int main(int argc,char *argv[])
 
     next_node_mappings = (struct replica_mappings *) malloc(sizeof(struct replica_mappings));
     memset(next_node_mappings, 0, sizeof(struct replica_mappings));
+#ifdef CRAQ
+        // 将mica的所有并发程度都调成最大
+        mehcached_table_init(main_table, TABLE_BUCKET_NUMS, 1, TABLE_POOL_SIZE, true, true, true,\
+            numa_nodes[0], numa_nodes, MEHCACHED_MTH_THRESHOLD_FIFO);
+
+        INFO_LOG("---------------------------CRAQ Node [%d] init finished!---------------------------", server_instance->server_id);
+#endif
+
+#ifndef CRAQ
 
     if (IS_MAIN(server_instance->server_type))
     {
@@ -298,6 +311,7 @@ int main(int argc,char *argv[])
              numa_nodes[0], numa_nodes, MEHCACHED_MTH_THRESHOLD_FIFO);
         Assert(main_table);
     }
+
 
     if (IS_MIRROR(server_instance->server_type))
     {
@@ -365,17 +379,17 @@ int main(int argc,char *argv[])
         }
 		INFO_LOG("---------------------------MAIN node init finished!------------------------------");
 
-#ifdef MAIN_NODE_TEST
-        // 主节点启动测试程序
-        struct test_kv * kvs = generate_test_data(10, 10, 1024-VALUE_HEADER_LEN-VALUE_TAIL_LEN);
-        test_set(kvs);
-        struct test_kv * kvs2 = generate_test_data(10, 20, 1024-VALUE_HEADER_LEN-VALUE_TAIL_LEN);
-        test_set(kvs2);
-        struct test_kv * kvs3 = generate_test_data(10, 30, 1024-VALUE_HEADER_LEN-VALUE_TAIL_LEN);
-        test_set(kvs3);
-        // test_set(kvs, 100);
-        // test_set(kvs, 1000);
-#endif
+    #ifdef MAIN_NODE_TEST
+            // 主节点启动测试程序
+            struct test_kv * kvs = generate_test_data(10, 10, 1024-VALUE_HEADER_LEN-VALUE_TAIL_LEN);
+            test_set(kvs);
+            struct test_kv * kvs2 = generate_test_data(10, 20, 1024-VALUE_HEADER_LEN-VALUE_TAIL_LEN);
+            test_set(kvs2);
+            struct test_kv * kvs3 = generate_test_data(10, 30, 1024-VALUE_HEADER_LEN-VALUE_TAIL_LEN);
+            test_set(kvs3);
+            // test_set(kvs, 100);
+            // test_set(kvs, 1000);
+    #endif
     }
 
 	if (IS_MIRROR(server_instance->server_type))
@@ -468,7 +482,7 @@ int main(int argc,char *argv[])
         replica_is_ready = true;
         INFO_LOG("---------------------------Replica Node [%d] init finished!---------------------------", server_instance->server_id);
     }
-
+#endif
     pthread_join(server_instance->ctx.epoll_thread, NULL);
     return 0;
 }

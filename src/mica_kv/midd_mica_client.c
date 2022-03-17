@@ -24,6 +24,7 @@
 
 #include "midd_mica_benchmark.h"
 
+
 volatile bool replica_is_ready = true;
 bool ica_cli_get(struct test_kv *kv_entry, void *user_buff, size_t *out_value_length, size_t target_id, size_t tag);
 struct test_kv * kvs;
@@ -130,7 +131,11 @@ void workloada()
         idx = (size_t)rand_num[j];
 		srand((unsigned int)i);
 		int suiji = rand()%(read_num+update_num);
+#ifndef CRAQ
         size_t suiji_node = (size_t) (rand()%(client_mgr->config.nets_cnt - 2));  // 只从副本节点读取
+#else
+        size_t suiji_node = (size_t) (rand()%(client_mgr->config.nets_cnt)); 
+#endif
 		{
 			if(suiji < read_num)
 			{

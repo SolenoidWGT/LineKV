@@ -538,7 +538,7 @@ mehcached_set_item(struct mehcached_item *item, uint64_t key_hash, const uint8_t
         // 更新 value 的头部
         value_header->version = 1;
         value_header->value_count = 1;  
-
+#ifndef CRAQ
         if (IS_REPLICA(server_instance->server_type))
         {
             value_tail->version = (uint64_t) -1;
@@ -549,6 +549,10 @@ mehcached_set_item(struct mehcached_item *item, uint64_t key_hash, const uint8_t
             value_tail->version = 1;
             value_tail->dirty = false;
         }
+#elif defined(CRAQ)
+        value_tail->version = 1;
+        value_tail->dirty = false;
+#endif
     }
 
     // printf("key_header length is %lu\n", sizeof(struct midd_key_tail));
@@ -606,12 +610,14 @@ mehcached_set_item_value(struct mehcached_item *item, const uint8_t *value, uint
         }
         else
         {
+#ifndef CRAQ
             // 如果是副本节点调用该函数，且不是由回调函数调用的，则报错
             if ((void*)value != (void*)0x1)
             {
                 ERROR_LOG("mehcached_set_item_value do set, exit!");
                 exit(-1);
             }
+#endif
             // 副本节点什么都不干，因为我们采用双边操作进行卸载
         }
     }
@@ -902,6 +908,7 @@ mehcached_get(uint8_t current_alloc_id MEHCACHED_UNUSED, struct mehcached_table 
             value_length = MEHCACHED_MAX_VALUE_LENGTH;  // fix-up for possible garbage read
         
         Assert(value_length <= MICA_DEFAULT_VALUE_LEN);
+
         // 只有副本节点需要等待版本号一致
         if ( !IS_MAIN(server_instance->server_type) && 
              !IS_MIRROR(server_instance->server_type) &&

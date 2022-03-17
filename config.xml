@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <dhmp_config>
 	<client>
-		<log_level>6</log_level>
+		<log_level>0</log_level>
 	</client>
 
 	<watcher>
@@ -37,12 +37,12 @@
 	</server>
 
 	<!-- node17 -->
+
 	<server id="2">
 		<nic_name>ib0</nic_name>
 		<addr>10.10.10.1</addr>
 		<port>31417</port>
 		<dram_node>0</dram_node>
-		<!-- <nvm_node>2</nvm_node> -->
 	</server>
 
 	<server id="3">
@@ -50,7 +50,6 @@
 		<addr>10.10.10.1</addr>
 		<port>31418</port>
 		<dram_node>0</dram_node>
-		<!-- <nvm_node>2</nvm_node> -->
 	</server>
 
 </dhmp_config>

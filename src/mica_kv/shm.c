@@ -311,7 +311,11 @@ mehcached_shm_map(size_t entry_id, void *ptr, void ** bucket_ptr,
 	}
 
 #ifdef USE_RDMA
+	#ifndef CRAQ
 	if (!IS_MAIN(server_instance->server_type) /* && table_init == false*/)
+	#else
+	if (!IS_HEAD(server_instance->server_type))
+	#endif
 	{
 		struct dhmp_device * dev = dhmp_get_dev_from_server();
 		struct ibv_mr * mr=ibv_reg_mr(dev->pd, p, total_alloc_pages, 

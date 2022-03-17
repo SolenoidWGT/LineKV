@@ -441,4 +441,6 @@ typedef struct distrubute_job_thread_init_data
 }thread_init_data;
 
 // #define NIC_MULITI_THREAD
+
+#define CRAQ
 #endif
