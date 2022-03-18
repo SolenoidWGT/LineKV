@@ -130,7 +130,11 @@ void workloada()
         idx = (size_t)rand_num[j];
 		srand((unsigned int)i);
 		int suiji = rand()%(read_num+update_num);
+#ifndef STAR
         size_t suiji_node = (size_t) (rand()%(client_mgr->config.nets_cnt - 2));  // 只从副本节点读取
+#else
+        size_t suiji_node = (size_t) (rand()%(client_mgr->config.nets_cnt));  // 只从副本节点读取
+#endif
 		{
 			if(suiji < read_num)
 			{

@@ -21,7 +21,7 @@
 
 static uint64_t set_counts = 0, get_counts=0;
 long long int total_set_time = 0, total_get_time =0;
-static struct dhmp_msg * make_basic_msg(struct dhmp_msg * res_msg, struct post_datagram *resp);
+static struct dhmp_msg * make_basic_msg(struct dhmp_msg * res_msg, struct post_datagram *resp, enum dhmp_msg_type type );
 
 struct mica_work_context * mica_work_context_mgr[2];
 
@@ -250,8 +250,8 @@ dhmp_mica_set_request_handler(struct dhmp_transport* rdma_trans, struct post_dat
 	struct mehcached_item * item;
 	struct mehcached_table *table = &table_o;
 	bool is_update, is_maintable = true;
-	struct dhmp_msg resp_msg;
-	struct dhmp_msg *resp_msg_ptr;
+	struct dhmp_msg resp_msg, req_msg;
+	struct dhmp_msg *resp_msg_ptr, *req_msg_ptr;
 
 	void * key_addr;
 	void * value_addr;
@@ -273,8 +273,10 @@ dhmp_mica_set_request_handler(struct dhmp_transport* rdma_trans, struct post_dat
 	if (IS_REPLICA(server_instance->server_type))
 		value_addr = (void*) 0x1;
 	else
+		value_addr = (void*)key_addr + req_info->key_length;
 #else
-	value_addr = (void*)key_addr + req_info->key_length;
+	if (req_info->onePC)
+		value_addr = (void*)key_addr + req_info->key_length;
 #endif
 
 #ifndef STAR
@@ -294,7 +296,10 @@ dhmp_mica_set_request_handler(struct dhmp_transport* rdma_trans, struct post_dat
 
 	// 注意！，此处不需要调用 warpper 函数
 	// 因为传递过来的 value 地址已经添加好头部和尾部了，长度也已经加上了头部和尾部的长度。
-	
+#ifdef STAR
+	if (req_info->onePC)
+	{
+#endif
 	MICA_TIME_COUNTER_INIT();
 	item = mehcached_set(req_info->current_alloc_id,
 						table,
@@ -335,7 +340,11 @@ dhmp_mica_set_request_handler(struct dhmp_transport* rdma_trans, struct post_dat
 		set_result->is_success = false;
 		Assert(false);
 	}
+#ifdef STAR
+	}
+#endif
 
+#ifndef STAR
 	if (IS_MAIN(server_instance->server_type))
 	{
 		// void 
@@ -370,7 +379,6 @@ dhmp_mica_set_request_handler(struct dhmp_transport* rdma_trans, struct post_dat
 		INFO_LOG("Main Node: key hash [%lx] notices downstream replica node!", req_info->key_hash); 
 	}
 
-#ifndef STAR
 	// 拷贝 key 和 key 的长度,用于链中节点向上游节点发送消息
 	if (!IS_HEAD(server_instance->server_type) &&
 		!IS_MIRROR(server_instance->server_type) &&
@@ -391,11 +399,11 @@ dhmp_mica_set_request_handler(struct dhmp_transport* rdma_trans, struct post_dat
 	resp->info_length = resp_len;
 	resp->done_flag = false;						// request_handler 不关心 done_flag（不需要阻塞）
 
+#ifndef STAR
 	// 先向 主节点/ 客户端 发送回复，节约一次 RTT 的时间
-	resp_msg_ptr = make_basic_msg(&resp_msg, resp);
+	resp_msg_ptr = make_basic_msg(&resp_msg, resp, DHMP_MICA_SEND_INFO_RESPONSE);
 	dhmp_post_send(rdma_trans, resp_msg_ptr);
 
-#ifndef STAR
 	// 各副本节点（除了主节点直接负责的副本节点）还需要向各自的直接上游
 	// 节点发送自己的新分配的 item 的 mappingID 和虚拟地址
 	if (!IS_HEAD(server_instance->server_type) &&
@@ -408,12 +416,49 @@ dhmp_mica_set_request_handler(struct dhmp_transport* rdma_trans, struct post_dat
 		MICA_TIME_COUNTER_CAL("[dhmp_mica_set_request_handler]->[dhmp_post_send to upstream node]");
 	}
 #else
+	if (IS_MIRROR(server_instance->server_type))
+	{
+		// 回复主节点
+		make_basic_msg(&resp_msg, resp, DHMP_MICA_SEND_INFO_RESPONSE);
+		dhmp_post_send(rdma_trans, resp_msg_ptr);
+	}
+
 	if (IS_MAIN(server_instance->server_type))
 	{
+		int nid, recv_count =0;
+		int node_num = server_instance->config.nets_cnt - 1;
+		struct set_requset_pack req_callback_ptr[10];	// 默认不超过10个节点
+		req_info->onePC = true;
+		req->reuse_done_count = 0;
+		req->req_ptr = req;
+		req->node_id = MAIN;
 		// 1PC : 主节点等待各个副本节点的相应情况
-		
+		for (nid=MIRROR_NODE_ID ; nid<= server_instance->config.nets_cnt; nid++)
+		{
+			// 向下游节点转发 set 操作， 并等待 set 操作返回
+			// 由于 recv 是单线程处理的，所以我们可以放心的复用同一个 req 报文
+			make_basic_msg(&req_msg, req, DHMP_MICA_SEND_INFO_REQUEST);
+			dhmp_post_send(find_connect_server_by_nodeID(nid), req_msg_ptr);
+		}
 
-		// 2PC : 
+		MICA_TIME_COUNTER_INIT();
+		while(req->reuse_done_count < node_num)
+			MICA_TIME_LIMITED(req_info->tag, TIMEOUT_LIMIT_MS);
+		
+		// 回复客户端
+		// resp->req_ptr 必须是对端的指针
+		make_basic_msg(&resp_msg, resp, DHMP_MICA_SEND_INFO_RESPONSE);
+		dhmp_post_send(rdma_trans, resp_msg_ptr);	
+
+		// 2PC : 不发送 value
+		req_info->onePC = false;
+		req->info_length = sizeof(struct post_datagram) + sizeof(struct dhmp_mica_set_request) + req_info->key_length;
+		req->reuse_done_count = 0;
+		for (nid=MIRROR_NODE_ID ; nid<= server_instance->config.nets_cnt; nid++)
+		{	
+			make_basic_msg(&req_msg, req, DHMP_MICA_SEND_INFO_REQUEST);
+			dhmp_post_send(find_connect_server_by_nodeID(nid), req_msg_ptr);
+		}
 	}
 #endif
 }
@@ -430,6 +475,7 @@ dhmp_set_response_handler(struct dhmp_msg* msg)
 	
 	DEFINE_STACK_TIMER();
 
+#ifndef STAR
 	if (server_instance == NULL ||
 		IS_MAIN(server_instance->server_type))
 	{
@@ -477,6 +523,17 @@ dhmp_set_response_handler(struct dhmp_msg* msg)
 							server_instance->server_id, resp_info->key_hash, target_item->remote_value_addr);
 		}
 	}
+#else
+	req_info->out_mapping_id = resp_info->out_mapping_id;
+	req_info->out_value_addr = resp_info->value_addr;
+	req_info->is_success = resp_info->is_success;		// 新增的成功标识位，如果失败需要重试
+
+	resp->req_ptr->done_flag = true;
+	resp->req_ptr->reuse_done_count++;
+
+	INFO_LOG("Node [%d] set key_hash [%lx], tag is [%d] to node[%d]!, is success!", \
+			server_instance!=NULL ? server_instance->server_id : client_mgr->self_node_id, req_info->key_hash, req_info->tag ,resp->node_id);
+#endif
 }
 
 static struct post_datagram * 
@@ -935,12 +992,11 @@ void __dhmp_wc_recv_handler(struct dhmp_transport* rdma_trans, struct dhmp_msg* 
 }
 
 static struct dhmp_msg *
-make_basic_msg(struct dhmp_msg * res_msg, struct post_datagram *resp)
+make_basic_msg(struct dhmp_msg * res_msg, struct post_datagram *resp, enum dhmp_msg_type type )
 {
-	res_msg->msg_type = DHMP_MICA_SEND_INFO_RESPONSE;
+	res_msg->msg_type = type;
 	res_msg->data_size = DATAGRAM_ALL_LEN(resp->info_length);
 	res_msg->data= resp;
-	return res_msg;
 }
 
 	// item = mehcached_set(req_info->current_alloc_id,
@@ -1026,7 +1082,8 @@ int init_mulit_server_work_thread()
 	memset(mica_work_context_mgr[0], 0, sizeof(struct mica_work_context));
 	memset(mica_work_context_mgr[1], 0, sizeof(struct mica_work_context));
 
-	for (j=DHMP_MICA_SEND_INFO_REQUEST; j<=DHMP_MICA_SEND_INFO_RESPONSE; j++)
+	// 由于 response 的回调函数都是时间非常短，我们用一个线程就可以了
+	for (j=DHMP_MICA_SEND_INFO_REQUEST; j<=DHMP_MICA_SEND_INFO_REQUEST; j++)
 	{
 		for (i=0; i<PARTITION_NUMS; i++)
 		{

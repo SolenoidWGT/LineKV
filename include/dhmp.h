@@ -181,6 +181,7 @@ struct post_datagram
 	int      node_id;							// 身份标识，用于通信双方辨别发送方身份，一次rpc过程中node_id 改变两次
 	enum     mica_send_info_type info_type;		// 报文类型的判别
 	size_t   info_length;						// 具体消息报文的长度
+	volatile int   reuse_done_count;			// 异步，重复使用报文时的计数
 	volatile bool  done_flag;					// 用于判别报文是否发送完成，用于阻塞
 };
 #define HEADER_LEN sizeof(struct post_datagram)
@@ -240,6 +241,9 @@ struct dhmp_mica_set_request
 	size_t	tag;	// 这个 tag 用于标识 set 的序号，只有debug的时候有用，性能测试的时候要关闭
 
 	int partition_id;
+#ifndef STAR
+	bool onePC;	// 是否是1pc阶段，false为2pc阶段
+#endif
 
 	// 临时缓冲链表锚点
 	// struct list_head sending_list;

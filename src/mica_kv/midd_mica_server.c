@@ -292,7 +292,7 @@ int main(int argc,char *argv[])
     // 主节点和镜像节点初始化本地hash表
     if (IS_MAIN(server_instance->server_type))
     {
-        mehcached_table_init(main_table, TABLE_BUCKET_NUMS, 1, TABLE_POOL_SIZE, false, false, false,\
+        mehcached_table_init(main_table, TABLE_BUCKET_NUMS, 1, TABLE_POOL_SIZE, true, true, true,\
              numa_nodes[0], numa_nodes, MEHCACHED_MTH_THRESHOLD_FIFO);
 #ifndef STAR
         mehcached_table_init(log_table, TABLE_BUCKET_NUMS, 1, TABLE_POOL_SIZE, false, false, false,\
@@ -303,7 +303,7 @@ int main(int argc,char *argv[])
 
     if (IS_MIRROR(server_instance->server_type))
     {
-        mehcached_table_init(main_table, TABLE_BUCKET_NUMS, 1, TABLE_POOL_SIZE, false, false, false,\
+        mehcached_table_init(main_table, TABLE_BUCKET_NUMS, 1, TABLE_POOL_SIZE, true, true, true,\
              numa_nodes[0], numa_nodes, MEHCACHED_MTH_THRESHOLD_FIFO);
         Assert(main_table);
     }
