@@ -294,8 +294,10 @@ int main(int argc,char *argv[])
     {
         mehcached_table_init(main_table, TABLE_BUCKET_NUMS, 1, TABLE_POOL_SIZE, false, false, false,\
              numa_nodes[0], numa_nodes, MEHCACHED_MTH_THRESHOLD_FIFO);
+#ifndef STAR
         mehcached_table_init(log_table, TABLE_BUCKET_NUMS, 1, TABLE_POOL_SIZE, false, false, false,\
              numa_nodes[0], numa_nodes, MEHCACHED_MTH_THRESHOLD_FIFO);
+#endif
         Assert(main_table);
     }
 
@@ -308,6 +310,7 @@ int main(int argc,char *argv[])
 
     // 主节点初始化远端hash表，镜像节点初始化自己本地的hash表
     //mehcached_node_init();
+#ifndef STAR
 	if (IS_MAIN(server_instance->server_type))
     {
 		MID_LOG("Node [%d] do MAIN node init work", server_instance->server_id);
@@ -365,18 +368,19 @@ int main(int argc,char *argv[])
         }
 		INFO_LOG("---------------------------MAIN node init finished!------------------------------");
 
-#ifdef MAIN_NODE_TEST
-        // 主节点启动测试程序
-        struct test_kv * kvs = generate_test_data(10, 10, 1024-VALUE_HEADER_LEN-VALUE_TAIL_LEN);
-        test_set(kvs);
-        struct test_kv * kvs2 = generate_test_data(10, 20, 1024-VALUE_HEADER_LEN-VALUE_TAIL_LEN);
-        test_set(kvs2);
-        struct test_kv * kvs3 = generate_test_data(10, 30, 1024-VALUE_HEADER_LEN-VALUE_TAIL_LEN);
-        test_set(kvs3);
-        // test_set(kvs, 100);
-        // test_set(kvs, 1000);
-#endif
+    #ifdef MAIN_NODE_TEST
+            // 主节点启动测试程序
+            struct test_kv * kvs = generate_test_data(10, 10, 1024-VALUE_HEADER_LEN-VALUE_TAIL_LEN);
+            test_set(kvs);
+            struct test_kv * kvs2 = generate_test_data(10, 20, 1024-VALUE_HEADER_LEN-VALUE_TAIL_LEN);
+            test_set(kvs2);
+            struct test_kv * kvs3 = generate_test_data(10, 30, 1024-VALUE_HEADER_LEN-VALUE_TAIL_LEN);
+            test_set(kvs3);
+            // test_set(kvs, 100);
+            // test_set(kvs, 1000);
+    #endif
     }
+#endif
 
 	if (IS_MIRROR(server_instance->server_type))
 	{
@@ -385,6 +389,7 @@ int main(int argc,char *argv[])
         INFO_LOG("---------------------------MIRROR node init finished!---------------------------");
 	}
 
+#ifndef STAR
     // 存在下游节点的副本节点向下游节点发送初始化请求
 	if(IS_REPLICA(server_instance->server_type))
     {
@@ -468,6 +473,7 @@ int main(int argc,char *argv[])
         replica_is_ready = true;
         INFO_LOG("---------------------------Replica Node [%d] init finished!---------------------------", server_instance->server_id);
     }
+#endif
 
     pthread_join(server_instance->ctx.epoll_thread, NULL);
     return 0;

@@ -193,7 +193,7 @@ struct dhmp_client *  dhmp_client_init(size_t buffer_size, bool is_mica_cli)
 				client_mgr->read_mr[i] = init_read_mr(buffer_size, client_mgr->connect_trans[i]->device->pd);
 			}
 		}
-
+#ifndef STAR
 		// 排除集群中只有一个副本节点的情况
 		if(IS_REPLICA(server_instance->server_type) && 
 				server_instance->node_nums > 3 &&
@@ -212,6 +212,7 @@ struct dhmp_client *  dhmp_client_init(size_t buffer_size, bool is_mica_cli)
 			client_mgr->connect_trans[next_id]->node_id = next_id;
 			client_mgr->read_mr[next_id] = init_read_mr(buffer_size, client_mgr->connect_trans[next_id]->device->pd);	
 		}
+#endif
 	}
 
 	/* 初始化client段全局对象 */
@@ -293,11 +294,17 @@ struct dhmp_server * dhmp_server_init(size_t server_id)
 
 			if (server_instance->server_id == 0)
 				SET_MAIN(server_instance->server_type);
+#ifndef STAR
 			else if (server_instance->server_id == 1)
 				SET_MIRROR(server_instance->server_type);
 			else
 				SET_REPLICA(server_instance->server_type);
-			
+#else
+			else
+				SET_MIRROR(server_instance->server_type);			
+#endif
+
+#ifndef STAR
 			// 尾节点单独 set 标志位
 			if (server_instance->server_id == server_instance->node_nums - 1)
 			{
@@ -308,7 +315,7 @@ struct dhmp_server * dhmp_server_init(size_t server_id)
 			// 非主节点的头副本节点
 			if (server_instance->server_id == 2)
 				SET_HEAD(server_instance->server_type);
-
+#endif
 			MID_LOG("Server's node id is [%d], node_nums is [%d], server_type is %d", \
 					server_instance->server_id, server_instance->node_nums, server_instance->server_type);
 			break;

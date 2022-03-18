@@ -269,17 +269,22 @@ dhmp_mica_set_request_handler(struct dhmp_transport* rdma_trans, struct post_dat
 	// mica客户端节点向主节点发送请求也会调用这个函数
 	// Assert(!IS_MAIN(server_instance->server_type));
 	// 不管是 insert 还是 update 副本节点都需要等待上游网卡节点传送数据
+#ifndef STAR
 	if (IS_REPLICA(server_instance->server_type))
 		value_addr = (void*) 0x1;
 	else
-		value_addr = (void*)key_addr + req_info->key_length;
+#else
+	value_addr = (void*)key_addr + req_info->key_length;
+#endif
 
+#ifndef STAR
 	// 该节点的 mapping 信息和 mr 信息
 	// 回传key（为了上游节点确定item，仅靠key_hash是不够的）
 	if (!IS_HEAD(server_instance->server_type) &&
 		!IS_MIRROR(server_instance->server_type) &&
 		!IS_MAIN(server_instance->server_type))
 		resp_len += req_info->key_length;	
+#endif
 
 	resp = (struct post_datagram *) malloc(DATAGRAM_ALL_LEN(resp_len));
 	memset(resp, 0, DATAGRAM_ALL_LEN(resp_len));
@@ -365,6 +370,7 @@ dhmp_mica_set_request_handler(struct dhmp_transport* rdma_trans, struct post_dat
 		INFO_LOG("Main Node: key hash [%lx] notices downstream replica node!", req_info->key_hash); 
 	}
 
+#ifndef STAR
 	// 拷贝 key 和 key 的长度,用于链中节点向上游节点发送消息
 	if (!IS_HEAD(server_instance->server_type) &&
 		!IS_MIRROR(server_instance->server_type) &&
@@ -374,7 +380,7 @@ dhmp_mica_set_request_handler(struct dhmp_transport* rdma_trans, struct post_dat
 		set_result->key_length = req_info->key_length;
 		set_result->key_hash = req_info->key_hash;
 	}
-
+#endif
 	INFO_LOG("key_hash is %lx, len is %lu, addr is %p ", req_info->key_hash, req_info->key_length, key_addr);
 
 	// 填充 response 报文
@@ -389,6 +395,7 @@ dhmp_mica_set_request_handler(struct dhmp_transport* rdma_trans, struct post_dat
 	resp_msg_ptr = make_basic_msg(&resp_msg, resp);
 	dhmp_post_send(rdma_trans, resp_msg_ptr);
 
+#ifndef STAR
 	// 各副本节点（除了主节点直接负责的副本节点）还需要向各自的直接上游
 	// 节点发送自己的新分配的 item 的 mappingID 和虚拟地址
 	if (!IS_HEAD(server_instance->server_type) &&
@@ -400,6 +407,15 @@ dhmp_mica_set_request_handler(struct dhmp_transport* rdma_trans, struct post_dat
 		dhmp_post_send(find_connect_client_by_nodeID(server_instance->server_id - 1), resp_msg_ptr);
 		MICA_TIME_COUNTER_CAL("[dhmp_mica_set_request_handler]->[dhmp_post_send to upstream node]");
 	}
+#else
+	if (IS_MAIN(server_instance->server_type))
+	{
+		// 1PC : 主节点等待各个副本节点的相应情况
+		
+
+		// 2PC : 
+	}
+#endif
 }
 
 static void 
