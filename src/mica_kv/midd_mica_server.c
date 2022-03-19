@@ -17,8 +17,11 @@
 #include "nic.h"
 
 #include "midd_mica_benchmark.h"
+#include "mica_partition.h"
 
-pthread_t nic_thread[PARTITION_NUMS];
+
+
+pthread_t nic_thread[PARTITION_MAX_NUMS];
 void* (*main_node_nic_thread_ptr) (void* );
 void* (*replica_node_nic_thread_ptr) (void* );
 void test_set(struct test_kv * kvs);
@@ -26,10 +29,256 @@ void test_set(struct test_kv * kvs);
 volatile bool replica_is_ready = false;
 static size_t SERVER_ID= (size_t)-1;
 
+
 struct test_kv kvs_group[TEST_KV_NUM];
 static void free_test_date();
 
 
+
+
+
+int main(int argc,char *argv[])
+{
+    // 初始化集群 rdma 连接
+    int i, retval;
+    int nic_thread_num;
+    size_t numa_nodes[] = {(size_t)-1};;
+    const size_t page_size = 1048576 * 2;
+	const size_t num_numa_nodes = 2;
+    const size_t num_pages_to_try = 16384;
+    const size_t num_pages_to_reserve = 16384 - 2048;   // give 2048 pages to dpdk
+    
+    INFO_LOG("Server argc is [%d]", argc);
+    Assert(argc==3);
+    for (i = 0; i<argc; i++)
+	{
+        if (i==1)
+        {
+            SERVER_ID = (size_t)(*argv[i] - '0');
+            INFO_LOG("Server node_id is [%d]", SERVER_ID);
+        }
+        else if (i==2)
+        {
+            __partition_nums = atoi(argv[i]);
+            Assert(__partition_nums >0 && __partition_nums < PARTITION_MAX_NUMS);
+            INFO_LOG("Server __partition_nums is [%d]", __partition_nums);
+        }
+	}
+
+#ifdef NIC_MULITI_THREAD
+    nic_thread_num = PARTITION_NUMS;
+#else
+    nic_thread_num = 1;
+#endif
+    // 初始化 hook
+    // set_main_node_thread_addr(&main_node_nic_thread_ptr);
+    // set_replica_node_thread_addr(&replica_node_nic_thread_ptr);
+
+    // 初始化本地存储，分配 page
+	mehcached_shm_init(page_size, num_numa_nodes, num_pages_to_try, num_pages_to_reserve);
+
+    // 初始化 rdma 连接
+    server_instance = dhmp_server_init(SERVER_ID);
+    client_mgr = dhmp_client_init(INIT_DHMP_CLIENT_BUFF_SIZE, false);
+    Assert(server_instance);
+    Assert(client_mgr);
+
+    next_node_mappings = (struct replica_mappings *) malloc(sizeof(struct replica_mappings));
+    memset(next_node_mappings, 0, sizeof(struct replica_mappings));
+
+    if (IS_MAIN(server_instance->server_type))
+    {
+        if (server_instance->node_nums < 3)
+        {
+            ERROR_LOG("The number of cluster is not enough");
+            exit(0);
+        }
+        Assert(server_instance->server_id == 0);
+    }
+
+    // 主节点和镜像节点初始化本地hash表
+    if (IS_MAIN(server_instance->server_type))
+    {
+        mehcached_table_init(main_table, TABLE_BUCKET_NUMS, 1, TABLE_POOL_SIZE, true, true, true,\
+             numa_nodes[0], numa_nodes, MEHCACHED_MTH_THRESHOLD_FIFO);
+        mehcached_table_init(log_table, TABLE_BUCKET_NUMS, 1, TABLE_POOL_SIZE, true, true, true,\
+             numa_nodes[0], numa_nodes, MEHCACHED_MTH_THRESHOLD_FIFO);
+        Assert(main_table);
+    }
+
+    if (IS_MIRROR(server_instance->server_type))
+    {
+        mehcached_table_init(main_table, TABLE_BUCKET_NUMS, 1, TABLE_POOL_SIZE, true, true, true,\
+             numa_nodes[0], numa_nodes, MEHCACHED_MTH_THRESHOLD_FIFO);
+        Assert(main_table);
+    }
+
+    // 主节点初始化远端hash表，镜像节点初始化自己本地的hash表
+    //mehcached_node_init();
+	if (IS_MAIN(server_instance->server_type))
+    {
+		MID_LOG("Node [%d] do MAIN node init work", server_instance->server_id);
+        // 向所有副本节点发送 main_table 初始化请求
+		Assert(server_instance->server_id == MAIN_NODE_ID ||
+				server_instance->server_id == MIRROR_NODE_ID);
+		size_t nid;
+		size_t init_nums = 0;
+		bool* inited_state = (bool *) malloc(sizeof(bool) * server_instance->node_nums);
+		memset(inited_state, false, sizeof(bool) * server_instance->node_nums);
+
+		// for (nid = REPLICA_NODE_HEAD_ID; nid <= REPLICA_NODE_TAIL_ID; nid++)
+		micaserver_get_cliMR(next_node_mappings, REPLICA_NODE_HEAD_ID);
+
+		// 等待全部节点初始化完成,才能开放服务
+		// 因为是主节点等待，所以主节点主动去轮询，而不是被动等待从节点发送完成信号
+		while (init_nums < REPLICA_NODE_NUMS)
+		{
+			enum ack_info_state ack_state;
+            init_nums = 0;
+			for (nid = REPLICA_NODE_HEAD_ID; nid <= REPLICA_NODE_TAIL_ID; nid++) 
+			{
+				if (inited_state[nid] == false)
+				{
+					ack_state = mica_basic_ack_req(nid, MICA_INIT_ADDR_ACK, true);
+					if (ack_state == MICA_ACK_INIT_ADDR_OK)
+					{
+						inited_state[nid] = true;
+						init_nums++;
+					}
+                    else
+                    {
+                        // retry
+                        if (ack_state != MICA_ACK_INIT_ADDR_NOT_OK)
+                        {
+                            ERROR_LOG("replica node [%d] unkown error!", nid);
+                            Assert(false);
+                        }
+                    }
+				}
+                else
+                    init_nums++;
+			}
+		}
+
+        // 启动网卡线程
+        for (i=0; i<nic_thread_num; i++)
+        {
+            retval = pthread_create(&nic_thread[i], NULL, main_node_nic_thread, (void*)i);
+            if(retval)
+            {
+                ERROR_LOG("pthread create error.");
+                return -1;
+            }
+        }
+		INFO_LOG("---------------------------MAIN node init finished!------------------------------");
+
+#ifdef MAIN_NODE_TEST
+        // 主节点启动测试程序
+        struct test_kv * kvs = generate_test_data(10, 10, 1024-VALUE_HEADER_LEN-VALUE_TAIL_LEN);
+        test_set(kvs);
+        struct test_kv * kvs2 = generate_test_data(10, 20, 1024-VALUE_HEADER_LEN-VALUE_TAIL_LEN);
+        test_set(kvs2);
+        struct test_kv * kvs3 = generate_test_data(10, 30, 1024-VALUE_HEADER_LEN-VALUE_TAIL_LEN);
+        test_set(kvs3);
+        // test_set(kvs, 100);
+        // test_set(kvs, 1000);
+#endif
+    }
+
+	if (IS_MIRROR(server_instance->server_type))
+	{
+		// 镜像节点只需要负责初始化自己的hash表即可，不需要知道副本节点的存储地址
+		MID_LOG("Node [%d] is mirror node, don't do any init work", server_instance->server_id);
+        INFO_LOG("---------------------------MIRROR node init finished!---------------------------");
+	}
+
+    // 存在下游节点的副本节点向下游节点发送初始化请求
+	if(IS_REPLICA(server_instance->server_type))
+    {
+        // 各个副本节点使用 主线程 检查是否已经和 主节点，上游节点 建立连接
+        // 副本节点是 server ， 主节点和上游节点是 client
+        struct dhmp_transport *rdma_trans=NULL;
+        int expected_connections;
+        int active_connection = 0;
+        size_t up_node;
+    
+        if (!IS_TAIL(server_instance->server_type))
+        {
+            if (server_instance->node_nums > 3)
+            {
+                // 向下游节点发送 main_table 初始化请求
+                size_t target_id = server_instance->server_id + 1;
+                Assert(target_id != server_instance->node_nums);
+
+                micaserver_get_cliMR(next_node_mappings, target_id);
+            }
+
+            // 启动网卡线程
+            //pthread_create(&nic_thread, NULL, *replica_node_nic_thread_ptr, NULL);
+            for (i=0; i<nic_thread_num; i++)
+            {
+                retval = pthread_create(&nic_thread[i], NULL, main_node_nic_thread, (void*)i);
+                if(retval)
+                {
+                    ERROR_LOG("pthread create error.");
+                    return -1;
+                }
+            }
+            MID_LOG("Node [%d] is started nicthread and get cliMR!", server_instance->server_id);
+        }
+
+        if (server_instance->server_id == REPLICA_NODE_HEAD_ID)
+            up_node = 0;    // 链表中的头节点没用上游节点
+        else
+            up_node = server_instance->server_id-1;
+
+        Assert(up_node != (size_t)-1);
+
+        if (server_instance->server_id == REPLICA_NODE_HEAD_ID)
+            expected_connections = 1;  // 链表中的头节点只需要被动接受主节点的连接
+        else
+            expected_connections = 2;  // 非头节点需要被动接受主节点和上游节点的连接
+
+        while (true)
+        {
+            pthread_mutex_lock(&server_instance->mutex_client_list);
+            if (server_instance->cur_connections == expected_connections)
+            {
+                list_for_each_entry(rdma_trans, &server_instance->client_list, client_entry)
+                {
+                    if (rdma_trans->node_id == -1)
+                    {
+                        // 由于只有dhmp客户端可以在建立连接的时候显式的标记 dhmp_trans 的 peer_nodeid
+                        // 而对于dhmp服务端来说只能使用 rpc 的方式确定每一个 trans 所对应的 peer_nodeid
+                        int peer_id = mica_ask_nodeID_req(rdma_trans);
+                        if (peer_id == -1)
+                        {
+                            pthread_mutex_unlock(&server_instance->mutex_client_list);
+                            break;
+                        }
+                        active_connection++;
+                        rdma_trans->node_id = peer_id;
+                    }
+                    INFO_LOG("Replica node [%d] get \"dhmp client\" (MICA MAIN node or upstream node) id is [%d], success!", \
+                                server_instance->server_id, rdma_trans->node_id);
+                }
+            }
+            pthread_mutex_unlock(&server_instance->mutex_client_list);
+
+            if (active_connection == expected_connections)
+                break;
+        }
+
+        while(get_table_init_state() == false);
+
+        // 在 replica_is_ready 为真之前副本节点不会接受其他节点发送来的 set, get , update 双边操作
+        replica_is_ready = true;
+        INFO_LOG("---------------------------Replica Node [%d] init finished!---------------------------", server_instance->server_id);
+    }
+
+    pthread_join(server_instance->ctx.epoll_thread, NULL);
+    return 0;
+}
 
 // 测试所有节点中的数据必须一致
 void test_get_consistent(struct test_kv * kvs MEHCACHED_UNUSED)
@@ -239,236 +488,4 @@ test_set(struct test_kv * kvs MEHCACHED_UNUSED)
     sleep(1);
     test_get_consistent(kvs);
     */
-}
-
-int main(int argc,char *argv[])
-{
-    // 初始化集群 rdma 连接
-    int i, retval;
-    int nic_thread_num;
-    size_t numa_nodes[] = {(size_t)-1};;
-    const size_t page_size = 1048576 * 2;
-	const size_t num_numa_nodes = 2;
-    const size_t num_pages_to_try = 16384;
-    const size_t num_pages_to_reserve = 16384 - 2048;   // give 2048 pages to dpdk
-    
-    for (i = 0; i<argc; i++)
-	{
-		SERVER_ID = (size_t)(*argv[i] - '0');
-        INFO_LOG("Server node_id is [%d]", SERVER_ID);
-	}
-
-#ifdef NIC_MULITI_THREAD
-    nic_thread_num = PARTITION_NUMS;
-#else
-    nic_thread_num = 1;
-#endif
-    // 初始化 hook
-    // set_main_node_thread_addr(&main_node_nic_thread_ptr);
-    // set_replica_node_thread_addr(&replica_node_nic_thread_ptr);
-
-    // 初始化本地存储，分配 page
-	mehcached_shm_init(page_size, num_numa_nodes, num_pages_to_try, num_pages_to_reserve);
-
-    // 初始化 rdma 连接
-    server_instance = dhmp_server_init(SERVER_ID);
-    client_mgr = dhmp_client_init(INIT_DHMP_CLIENT_BUFF_SIZE, false);
-    Assert(server_instance);
-    Assert(client_mgr);
-
-    next_node_mappings = (struct replica_mappings *) malloc(sizeof(struct replica_mappings));
-    memset(next_node_mappings, 0, sizeof(struct replica_mappings));
-
-    if (IS_MAIN(server_instance->server_type))
-    {
-        if (server_instance->node_nums < 3)
-        {
-            ERROR_LOG("The number of cluster is not enough");
-            exit(0);
-        }
-        Assert(server_instance->server_id == 0);
-    }
-
-    // 主节点和镜像节点初始化本地hash表
-    if (IS_MAIN(server_instance->server_type))
-    {
-        mehcached_table_init(main_table, TABLE_BUCKET_NUMS, 1, TABLE_POOL_SIZE, false, false, false,\
-             numa_nodes[0], numa_nodes, MEHCACHED_MTH_THRESHOLD_FIFO);
-        mehcached_table_init(log_table, TABLE_BUCKET_NUMS, 1, TABLE_POOL_SIZE, false, false, false,\
-             numa_nodes[0], numa_nodes, MEHCACHED_MTH_THRESHOLD_FIFO);
-        Assert(main_table);
-    }
-
-    if (IS_MIRROR(server_instance->server_type))
-    {
-        mehcached_table_init(main_table, TABLE_BUCKET_NUMS, 1, TABLE_POOL_SIZE, false, false, false,\
-             numa_nodes[0], numa_nodes, MEHCACHED_MTH_THRESHOLD_FIFO);
-        Assert(main_table);
-    }
-
-    // 主节点初始化远端hash表，镜像节点初始化自己本地的hash表
-    //mehcached_node_init();
-	if (IS_MAIN(server_instance->server_type))
-    {
-		MID_LOG("Node [%d] do MAIN node init work", server_instance->server_id);
-        // 向所有副本节点发送 main_table 初始化请求
-		Assert(server_instance->server_id == MAIN_NODE_ID ||
-				server_instance->server_id == MIRROR_NODE_ID);
-		size_t nid;
-		size_t init_nums = 0;
-		bool* inited_state = (bool *) malloc(sizeof(bool) * server_instance->node_nums);
-		memset(inited_state, false, sizeof(bool) * server_instance->node_nums);
-
-		// for (nid = REPLICA_NODE_HEAD_ID; nid <= REPLICA_NODE_TAIL_ID; nid++)
-		micaserver_get_cliMR(next_node_mappings, REPLICA_NODE_HEAD_ID);
-
-		// 等待全部节点初始化完成,才能开放服务
-		// 因为是主节点等待，所以主节点主动去轮询，而不是被动等待从节点发送完成信号
-		while (init_nums < REPLICA_NODE_NUMS)
-		{
-			enum ack_info_state ack_state;
-            init_nums = 0;
-			for (nid = REPLICA_NODE_HEAD_ID; nid <= REPLICA_NODE_TAIL_ID; nid++) 
-			{
-				if (inited_state[nid] == false)
-				{
-					ack_state = mica_basic_ack_req(nid, MICA_INIT_ADDR_ACK, true);
-					if (ack_state == MICA_ACK_INIT_ADDR_OK)
-					{
-						inited_state[nid] = true;
-						init_nums++;
-					}
-                    else
-                    {
-                        // retry
-                        if (ack_state != MICA_ACK_INIT_ADDR_NOT_OK)
-                        {
-                            ERROR_LOG("replica node [%d] unkown error!", nid);
-                            Assert(false);
-                        }
-                    }
-				}
-                else
-                    init_nums++;
-			}
-		}
-
-        // 启动网卡线程
-        for (i=0; i<nic_thread_num; i++)
-        {
-            retval = pthread_create(&nic_thread[i], NULL, main_node_nic_thread, (void*)i);
-            if(retval)
-            {
-                ERROR_LOG("pthread create error.");
-                return -1;
-            }
-        }
-		INFO_LOG("---------------------------MAIN node init finished!------------------------------");
-
-#ifdef MAIN_NODE_TEST
-        // 主节点启动测试程序
-        struct test_kv * kvs = generate_test_data(10, 10, 1024-VALUE_HEADER_LEN-VALUE_TAIL_LEN);
-        test_set(kvs);
-        struct test_kv * kvs2 = generate_test_data(10, 20, 1024-VALUE_HEADER_LEN-VALUE_TAIL_LEN);
-        test_set(kvs2);
-        struct test_kv * kvs3 = generate_test_data(10, 30, 1024-VALUE_HEADER_LEN-VALUE_TAIL_LEN);
-        test_set(kvs3);
-        // test_set(kvs, 100);
-        // test_set(kvs, 1000);
-#endif
-    }
-
-	if (IS_MIRROR(server_instance->server_type))
-	{
-		// 镜像节点只需要负责初始化自己的hash表即可，不需要知道副本节点的存储地址
-		MID_LOG("Node [%d] is mirror node, don't do any init work", server_instance->server_id);
-        INFO_LOG("---------------------------MIRROR node init finished!---------------------------");
-	}
-
-    // 存在下游节点的副本节点向下游节点发送初始化请求
-	if(IS_REPLICA(server_instance->server_type))
-    {
-        // 各个副本节点使用 主线程 检查是否已经和 主节点，上游节点 建立连接
-        // 副本节点是 server ， 主节点和上游节点是 client
-        struct dhmp_transport *rdma_trans=NULL;
-        int expected_connections;
-        int active_connection = 0;
-        size_t up_node;
-    
-        if (!IS_TAIL(server_instance->server_type))
-        {
-            if (server_instance->node_nums > 3)
-            {
-                // 向下游节点发送 main_table 初始化请求
-                size_t target_id = server_instance->server_id + 1;
-                Assert(target_id != server_instance->node_nums);
-
-                micaserver_get_cliMR(next_node_mappings, target_id);
-            }
-
-            // 启动网卡线程
-            //pthread_create(&nic_thread, NULL, *replica_node_nic_thread_ptr, NULL);
-            for (i=0; i<nic_thread_num; i++)
-            {
-                retval = pthread_create(&nic_thread[i], NULL, main_node_nic_thread, (void*)i);
-                if(retval)
-                {
-                    ERROR_LOG("pthread create error.");
-                    return -1;
-                }
-            }
-            MID_LOG("Node [%d] is started nicthread and get cliMR!", server_instance->server_id);
-        }
-
-        if (server_instance->server_id == REPLICA_NODE_HEAD_ID)
-            up_node = 0;    // 链表中的头节点没用上游节点
-        else
-            up_node = server_instance->server_id-1;
-
-        Assert(up_node != (size_t)-1);
-
-        if (server_instance->server_id == REPLICA_NODE_HEAD_ID)
-            expected_connections = 1;  // 链表中的头节点只需要被动接受主节点的连接
-        else
-            expected_connections = 2;  // 非头节点需要被动接受主节点和上游节点的连接
-
-        while (true)
-        {
-            pthread_mutex_lock(&server_instance->mutex_client_list);
-            if (server_instance->cur_connections == expected_connections)
-            {
-                list_for_each_entry(rdma_trans, &server_instance->client_list, client_entry)
-                {
-                    if (rdma_trans->node_id == -1)
-                    {
-                        // 由于只有dhmp客户端可以在建立连接的时候显式的标记 dhmp_trans 的 peer_nodeid
-                        // 而对于dhmp服务端来说只能使用 rpc 的方式确定每一个 trans 所对应的 peer_nodeid
-                        int peer_id = mica_ask_nodeID_req(rdma_trans);
-                        if (peer_id == -1)
-                        {
-                            pthread_mutex_unlock(&server_instance->mutex_client_list);
-                            break;
-                        }
-                        active_connection++;
-                        rdma_trans->node_id = peer_id;
-                    }
-                    INFO_LOG("Replica node [%d] get \"dhmp client\" (MICA MAIN node or upstream node) id is [%d], success!", \
-                                server_instance->server_id, rdma_trans->node_id);
-                }
-            }
-            pthread_mutex_unlock(&server_instance->mutex_client_list);
-
-            if (active_connection == expected_connections)
-                break;
-        }
-
-        while(get_table_init_state() == false);
-
-        // 在 replica_is_ready 为真之前副本节点不会接受其他节点发送来的 set, get , update 双边操作
-        replica_is_ready = true;
-        INFO_LOG("---------------------------Replica Node [%d] init finished!---------------------------", server_instance->server_id);
-    }
-
-    pthread_join(server_instance->ctx.epoll_thread, NULL);
-    return 0;
 }

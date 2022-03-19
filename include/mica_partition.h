@@ -3,6 +3,8 @@
 
 #define _GNU_SOURCE 1
 #include <sched.h> 
-#define PARTITION_NUMS 8
+#define PARTITION_MAX_NUMS 16
+#define PARTITION_NUMS __partition_nums
 
+extern int __partition_nums;
 #endif

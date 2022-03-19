@@ -245,10 +245,11 @@ struct dhmp_server * dhmp_server_init(size_t server_id)
 	dhmp_config_init(&server_instance->config, false);
 	dhmp_context_init(&server_instance->ctx);
 	// server_instance->server_id = server_instance->config.curnet_id;
-	Assert((server_id != ((size_t) -1) && server_id < server_instance->node_nums));
+	
 	server_instance->config.curnet_id = server_id;
 	server_instance->server_id = server_id;
 	server_instance->node_nums = server_instance->config.nets_cnt;
+	Assert((server_id != ((size_t) -1) && server_id < server_instance->node_nums));
 
 	// 所有的主节点都需要拥有多线程能力
 	init_mulit_server_work_thread();

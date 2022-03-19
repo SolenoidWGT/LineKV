@@ -16,7 +16,6 @@
 #include "alloc_dynamic.h"
 #include "nic.h"
 
-
 #include "dhmp_top_api.h"
 
 static uint64_t set_counts = 0, get_counts=0;
@@ -24,6 +23,9 @@ long long int total_set_time = 0, total_get_time =0;
 static struct dhmp_msg * make_basic_msg(struct dhmp_msg * res_msg, struct post_datagram *resp);
 
 struct mica_work_context * mica_work_context_mgr[2];
+
+int __partition_nums;
+
 
 // 由于 send 操作可能会被阻塞住，所以必须将 recv 操作让另一个线程处理，否则会出现死锁。
 // 我们对每一个 partition 启动两个线程
@@ -1003,6 +1005,8 @@ main_node_broadcast_matedata(struct dhmp_mica_set_request  * req_info,
 
 int init_mulit_server_work_thread()
 {
+	
+	bool recv_mulit_threads_enable=true;
 	int i, j, retval;
 	cpu_set_t cpuset;
 	mica_work_context_mgr[0] = (struct mica_work_context *) malloc(sizeof(struct mica_work_context));
