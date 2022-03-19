@@ -28,7 +28,7 @@ struct mehcached_table table_o;
 struct mehcached_table main_node_log_table_o;
 
 struct mehcached_table *main_table = &table_o;
-struct mehcached_table *log_table = &main_node_log_table_o;
+struct mehcached_table *log_table = NULL;
 
 // a test feature to deduplicate PUT requests within the same batch
 //#define MEHCACHED_DEDUP_WITHIN_BATCH
@@ -873,6 +873,8 @@ mehcached_get(uint8_t current_alloc_id MEHCACHED_UNUSED, struct mehcached_table 
 #ifdef MEHCACHED_ALLOC_DYNAMIC
         struct mehcached_item *item = (struct mehcached_item *)mehcached_dynamic_item(&table->alloc, item_offset);
 #endif
+
+#ifndef STAR
         // 比较 maintable 和 logtable 谁的version更新
         if (IS_MAIN(server_instance->server_type))
         {
@@ -890,7 +892,7 @@ mehcached_get(uint8_t current_alloc_id MEHCACHED_UNUSED, struct mehcached_table 
                     INFO_LOG("*****Main table has latest data, get from Main table!*****");
             }
         }
-
+#endif
         expire_time = item->expire_time;
 
         size_t key_length = MEHCACHED_KEY_LENGTH(item->kv_length_vec);
@@ -1234,6 +1236,7 @@ mehcached_set(uint8_t current_alloc_id, struct mehcached_table *table, uint64_t 
                 // 只有这种情况的 update 可以进入到 log_table 的写入逻辑！
                 if (item->alloc_item.item_size >= new_item_size)
                 {
+#ifndef STAR
                     if (IS_MAIN(server_instance->server_type) && table != log_table)
                     {
                         if (is_main_table_latest(item, key_hash, key, key_length))
@@ -1253,7 +1256,7 @@ mehcached_set(uint8_t current_alloc_id, struct mehcached_table *table, uint64_t 
                         }
                         // 如果 logtable 中的数据是新的，写 maintable，后面接正常的 mica 逻辑即可
                     }
-
+#endif
                     // key 已经存在，直接覆盖 value
                     MEHCACHED_STAT_INC(table, set_inplace);
                     mehcached_set_item_value(item, value, (uint32_t)value_length, expire_time, main_item);

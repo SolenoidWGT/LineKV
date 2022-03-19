@@ -284,25 +284,18 @@ struct dhmp_server * dhmp_server_init(size_t server_id)
 					(unsigned int)server_instance->config.net_infos[server_instance->config.curnet_id].port);
 
 			server_instance->server_id = server_instance->config.curnet_id;
-
+#ifndef STAR
 			if (server_instance->config.nets_cnt < 3)
 			{
 				ERROR_LOG("Too few nodes to start system, at least node num is [3], now is [%d], exit!", \
 						server_instance->config.nets_cnt);
 				exit(0);
 			}
-
+#endif
 			if (server_instance->server_id == 0)
 				SET_MAIN(server_instance->server_type);
-#ifndef STAR
-			else if (server_instance->server_id == 1)
-				SET_MIRROR(server_instance->server_type);
-			else
-				SET_REPLICA(server_instance->server_type);
-#else
 			else
 				SET_MIRROR(server_instance->server_type);			
-#endif
 
 #ifndef STAR
 			// 尾节点单独 set 标志位

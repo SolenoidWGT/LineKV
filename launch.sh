@@ -9,6 +9,7 @@
 ### 
 export LIBC_FATAL_STDERR_=1
 
+TASK_TYPE=$1
 GLOABL_PIDS_ARRAY=()
 TOTAL_NODE_NUMS=0
 mulitiRun(){
@@ -47,19 +48,68 @@ killAllProcess(){
         fi
     done
 }
+
+launch_mica_LineKV_task(){
+    # launch all server
+    mulitiRun 0 4 "mica"
+    # PID=$(ps -ef | grep mica | grep -v grep | awk '{ print $2 }')
+    # wait for all server ready
+    sleep 10
+
+    # launch mica_client 
+    mulitiRun 0 1 "cli_mica"
+    # wait mica_client test finished!
+    sleep 20
+}
+
+launch_mica_CRAQ_task(){
+    mulitiRun 0 4 "mica"
+    sleep 5
+    mulitiRun 0 1 "cli_mica"
+    sleep 20
+}
+
+launch_mica_CHT_task(){
+    mulitiRun 0 4 "mica"
+    sleep 5
+    mulitiRun 0 1 "cli_mica"
+    sleep 15
+}
+
+
+# 单线程，默认大小，100%xie
+launch_mica_CHT_task(){
+    mulitiRun 0 4 "mica"
+    sleep 5
+    mulitiRun 0 1 "cli_mica"
+    sleep 15
+}
+
+
+
 # $$ 表示当前进程的 pid 
 whoami
 rm -f *.log 
+rm -f *.core.*
 
-# launch all server
-mulitiRun 0 4 "mica"
-# PID=$(ps -ef | grep mica | grep -v grep | awk '{ print $2 }')
-# wait for all server ready
-sleep 10
 
-# launch mica_client 
-mulitiRun 0 1 "cli_mica"
-# wait mica_client test finished!
-sleep 20
+if [[ $TASK_TYPE = "LineKV" ]];
+then
+    echo "LineKV";
+    launch_mica_LineKV_task
+    killAllProcess
+elif [[ $TASK_TYPE = "CRAQ" ]];
+then
+    echo "CRAQ";
+    launch_mica_CRAQ_task
+    killAllProcess
+elif [[ $TASK_TYPE = "CHT" ]];
+then
+    echo "CHT";
+    launch_mica_CHT_task
+    killAllProcess
+else
+    echo "Unkonwn task type!, exit";
+fi
 
-killAllProcess
+echo "Exit!"

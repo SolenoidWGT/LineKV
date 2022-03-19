@@ -446,5 +446,8 @@ typedef struct distrubute_job_thread_init_data
 
 // #define NIC_MULITI_THREAD
 
+
+extern bool is_single_thread;
+extern int test_size;
 #define STAR
 #endif

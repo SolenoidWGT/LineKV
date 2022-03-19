@@ -84,7 +84,7 @@ static void dhmp_wc_error_handler(struct ibv_wc* wc)
 {
 	if(wc->status==IBV_WC_WR_FLUSH_ERR)
 	{
-		// INFO_LOG("work request flush, retry.....");
+		INFO_LOG("work request flush, retry.....");
 	}
 	else
 	{

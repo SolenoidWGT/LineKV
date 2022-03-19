@@ -25,221 +25,11 @@ void test_set(struct test_kv * kvs);
 
 volatile bool replica_is_ready = false;
 static size_t SERVER_ID= (size_t)-1;
+bool is_single_thread;
+int test_size;
 
 struct test_kv kvs_group[TEST_KV_NUM];
 static void free_test_date();
-
-
-
-// 测试所有节点中的数据必须一致
-void test_get_consistent(struct test_kv * kvs MEHCACHED_UNUSED)
-{
-    // size_t i, nid;
-    // INFO_LOG("---------------------------test_get_consistent!---------------------------");
-    // for (i = 0; i < TEST_KV_NUM; i++)
-    // {
-    //     const uint8_t* key = kvs[i].key;
-    //     const uint8_t* value = kvs[i].value;
-    //     size_t true_key_length = kvs[i].true_key_length;
-    //     size_t true_value_length = kvs[i].true_value_length;
-    //     uint64_t key_hash = hash(key, true_key_length);
-    //     uint8_t* out_value = (uint8_t*)malloc(true_value_length);
-    //     size_t  out_value_length;
-    //     uint32_t expire_time;
-    //     struct dhmp_mica_get_response *get_result = NULL;
-
-    //     struct mehcached_item * item = kvs[i].item;
-    //     Assert(item != NULL);
-
-    //     // 测试本地 table 数据一致
-    //     if (!mid_mehcached_get_warpper(0, main_table, key_hash, key, true_key_length,\
-    //                                  out_value, &out_value_length, \
-    //                                  &expire_time, false, true))
-    //     {
-    //         ERROR_LOG("key hash [%lx] get false", key_hash);
-    //         Assert(false);
-    //     }
-
-    //     if (!cmp_item_value(true_value_length, value, out_value_length, out_value))
-    //     {
-    //         ERROR_LOG("local item key_hash [%lx] value compare false!", key_hash);
-    //         Assert(false);
-    //     }
-    //     INFO_LOG("No.<%d> Main Node [%d] set test success!", i, MAIN_NODE_ID);
-
-    //     // 测试镜像节点数据一致
-    //     get_result = mica_get_remote_warpper(0, key_hash, key, true_key_length, false, NULL, MIRROR_NODE_ID, server_instance->server_id, out_value_length, (size_t)i);
-    //     if (get_result == NULL || get_result->out_value_length == (size_t) - 1)
-    //     {
-    //         ERROR_LOG("MICA get key %lx failed!", key_hash);
-    //         Assert(false);
-    //     }
-    //     if (get_result->partial == true)
-    //     {
-    //         ERROR_LOG("value too long!");
-    //         Assert(false);
-    //     }
-
-    //     if (!cmp_item_value(true_value_length, value, MEHCACHED_VALUE_LENGTH(item->kv_length_vec), item_get_value_addr(item)))
-    //     {
-    //         ERROR_LOG(" item key_hash [%lx] value compare false!", key_hash);
-    //         Assert(false);
-    //     }
-
-    //     if (!cmp_item_all_value(get_result->out_value_length, get_result->out_value, MEHCACHED_VALUE_LENGTH(item->kv_length_vec), item_get_value_addr(item)))
-    //     {
-    //         ERROR_LOG("Mirror item key_hash [%lx] value compare false!", key_hash);
-    //         Assert(false);
-    //     }
-    //     free(get_result);
-    //     INFO_LOG("No.<%d>, Mirror Node [%d] set test success!", i, MIRROR_NODE_ID);
-
-    //     // 测试远端 replica 节点数据一致
-    //     for (nid = REPLICA_NODE_HEAD_ID; nid <= REPLICA_NODE_TAIL_ID; nid++)
-    //     {
-    //         // 如果 version 不一致，需要反复尝试get直到一致后才会返回结果
-    //         while(true)
-    //         {
-    //             // 远端获取的默认是带header和tailer的value
-    //             get_result = mica_get_remote_warpper(0, key_hash, key, true_key_length, false, NULL, nid, server_instance->server_id, out_value_length, (size_t)i);
-    //             if (get_result == NULL)
-    //             {
-    //                 ERROR_LOG("MICA get key %lx failed!", key_hash);
-    //                 Assert(false);
-    //             }
-                
-    //             if (get_result->out_value_length != (size_t) - 1)
-    //                 break;
-    //         }
- 
-    //         if (get_result->partial == true)
-    //         {
-    //             ERROR_LOG("value too long!");
-    //             Assert(false);
-    //         }
-
-    //         if (!cmp_item_value(get_result->out_value_length, get_result->out_value, MEHCACHED_VALUE_LENGTH(item->kv_length_vec), item_get_value_addr(item)))
-    //         {
-    //             ERROR_LOG("Replica node [%d] item key_hash [%lx] value compare false!", nid, key_hash);
-    //             Assert(false);
-    //         }
-    //         INFO_LOG("No.<%d> Replica Node [%d] set test success!",i, nid);
-    //         free(get_result);
-    //     }
-
-    //     INFO_LOG("No.<%d> Key_hash [%lx] pas all compare scuess!", i, key_hash);
-    // }
-    // INFO_LOG("---------------------------test_get_consistent finish!---------------------------");
-}
-
-
-void
-test_set(struct test_kv * kvs MEHCACHED_UNUSED)
-{
-    /*
-    INFO_LOG("---------------------------test_set()---------------------------");
-    Assert(main_table);
-
-    size_t i;
-    size_t nid;
-    struct set_requset_pack *req_callback_ptr = (struct set_requset_pack *)\
-            malloc(sizeof(struct set_requset_pack) * server_instance->node_nums);
-                 
-    for (i = 0; i < TEST_KV_NUM; i++)
-    {
-        bool is_update, is_maintable = true;
-        struct mehcached_item * item;
-        const uint8_t* key = kvs[i].key;
-        //size_t new_value = i + val_offset;
-        //memcpy(kvs_group[i].value, &new_value, kvs_group[i].true_value_length);  // 更新value
-        const uint8_t* value = kvs[i].value;
-        size_t true_key_length = kvs[i].true_key_length;
-        size_t true_value_length = kvs[i].true_value_length;
-        size_t item_offset;
-        uint64_t key_hash = hash(key, true_key_length);
-    
-        item = midd_mehcached_set_warpper(0, main_table, key_hash,\
-                                         key, true_key_length, \
-                                         value, true_value_length, 0, true, &is_update, &is_maintable, NULL);
-
-        // Assert(is_update == false);
-
-        if (item == NULL)
-        {
-            ERROR_LOG("Main node set fail! keyhash is %lx", key_hash);
-            exit(0);
-        }
-        kvs[i].item = item;
-
-        // 镜像节点全value赋值
-        for (nid = MIRROR_NODE_ID; nid <= REPLICA_NODE_TAIL_ID; nid++)
-        {
-            mica_set_remote_warpper(0, 
-                                    kvs[i].key,
-                                    key_hash, 
-                                    true_key_length, 
-                                    kvs[i].value,
-                                    true_value_length, 
-                                    0, true,
-                                    true, 
-                                    &req_callback_ptr[nid],
-                                    nid,
-                                    is_update,
-                                    server_instance->server_id,
-                                    nid);
-        }
-
-        for (nid = MIRROR_NODE_ID; nid <= REPLICA_NODE_TAIL_ID; nid++)
-        {
-            while(req_callback_ptr[nid].req_ptr->done_flag == false);
-
-            if (req_callback_ptr[nid].req_info_ptr->out_mapping_id == (size_t)-1)
-            {
-                ERROR_LOG("Main node set node[%d] key_hash [%lx] failed!", nid, req_callback_ptr[nid].req_info_ptr->key_hash);
-                exit(0);
-            }
-            else
-            {
-                // 主节点只需要保存直接下游节点的 mr 信息即可
-                if (nid == REPLICA_NODE_HEAD_ID)
-                {
-                    item->mapping_id = req_callback_ptr[nid].req_info_ptr->out_mapping_id;
-                    item->remote_value_addr = req_callback_ptr[nid].req_info_ptr->out_value_addr;
-                    INFO_LOG("Main node set node[%d] key_hash [%lx] success!, mapping id is %u, remote addr is %p", \
-                                    nid, item->key_hash, item->mapping_id, item->remote_value_addr);
-                }
-            }
-
-            free(req_callback_ptr[nid].req_ptr);
-        }
-
-        INFO_LOG("key hash [%lx] set to all replica node success!", key_hash);
-
-        if (is_maintable)
-            item_offset = get_offset_by_item(main_table, item);
-        else
-            item_offset = get_offset_by_item(log_table, item);
- 
-        // 只写直接下游节点
-        // 还需要返回远端 value 的虚拟地址， 用来求偏移量
-        makeup_update_request(item, item_offset,\
-                             (uint8_t*)item_get_value_addr(item), \
-                             MEHCACHED_VALUE_LENGTH(item->kv_length_vec),
-                             nid);
- 
-        INFO_LOG("key hash [%lx] notices downstream replica node!", key_hash);
-    }
-
-    free(req_callback_ptr);
-    mehcached_print_stats(main_table);
-    mehcached_print_stats(log_table);
-    // mehcached_table_free(main_table);
-    INFO_LOG("---------------------------test_set finished!---------------------------");
-    // 主线程等待1s，让输出更清晰一点
-    sleep(1);
-    test_get_consistent(kvs);
-    */
-}
 
 int main(int argc,char *argv[])
 {
@@ -252,10 +42,27 @@ int main(int argc,char *argv[])
     const size_t num_pages_to_try = 16384;
     const size_t num_pages_to_reserve = 16384 - 2048;   // give 2048 pages to dpdk
     
+    INFO_LOG("Server argc is [%d]", argc);
+    Assert(argc==4);
     for (i = 0; i<argc; i++)
 	{
-		SERVER_ID = (size_t)(*argv[i] - '0');
-        INFO_LOG("Server node_id is [%d]", SERVER_ID);
+        if (i==1)
+        {
+            SERVER_ID = (size_t)(*argv[i] - '0');
+            INFO_LOG("Server node_id is [%d]", SERVER_ID);
+        }
+        else if (i==2)
+        {
+            retval=(int)(*argv[i] - '0');
+            is_single_thread = retval;
+            INFO_LOG("Server is_single_thread is [%d]", is_single_thread);
+
+        }
+        else if (i==3)
+        {
+            test_size = atoi(argv[i]);
+            INFO_LOG("Server test_size is [%d]", test_size);
+        }
 	}
 
 #ifdef NIC_MULITI_THREAD
@@ -281,11 +88,13 @@ int main(int argc,char *argv[])
 
     if (IS_MAIN(server_instance->server_type))
     {
+#ifndef STAR
         if (server_instance->node_nums < 3)
         {
             ERROR_LOG("The number of cluster is not enough");
             exit(0);
         }
+#endif
         Assert(server_instance->server_id == 0);
     }
 
@@ -297,6 +106,8 @@ int main(int argc,char *argv[])
 #ifndef STAR
         mehcached_table_init(log_table, TABLE_BUCKET_NUMS, 1, TABLE_POOL_SIZE, false, false, false,\
              numa_nodes[0], numa_nodes, MEHCACHED_MTH_THRESHOLD_FIFO);
+#else
+    	INFO_LOG("---------------------------MAIN node init finished!------------------------------");
 #endif
         Assert(main_table);
     }
@@ -477,4 +288,216 @@ int main(int argc,char *argv[])
 
     pthread_join(server_instance->ctx.epoll_thread, NULL);
     return 0;
+}
+
+
+void
+test_set(struct test_kv * kvs MEHCACHED_UNUSED)
+{
+    /*
+    INFO_LOG("---------------------------test_set()---------------------------");
+    Assert(main_table);
+
+    size_t i;
+    size_t nid;
+    struct set_requset_pack *req_callback_ptr = (struct set_requset_pack *)\
+            malloc(sizeof(struct set_requset_pack) * server_instance->node_nums);
+                 
+    for (i = 0; i < TEST_KV_NUM; i++)
+    {
+        bool is_update, is_maintable = true;
+        struct mehcached_item * item;
+        const uint8_t* key = kvs[i].key;
+        //size_t new_value = i + val_offset;
+        //memcpy(kvs_group[i].value, &new_value, kvs_group[i].true_value_length);  // 更新value
+        const uint8_t* value = kvs[i].value;
+        size_t true_key_length = kvs[i].true_key_length;
+        size_t true_value_length = kvs[i].true_value_length;
+        size_t item_offset;
+        uint64_t key_hash = hash(key, true_key_length);
+    
+        item = midd_mehcached_set_warpper(0, main_table, key_hash,\
+                                         key, true_key_length, \
+                                         value, true_value_length, 0, true, &is_update, &is_maintable, NULL);
+
+        // Assert(is_update == false);
+
+        if (item == NULL)
+        {
+            ERROR_LOG("Main node set fail! keyhash is %lx", key_hash);
+            exit(0);
+        }
+        kvs[i].item = item;
+
+        // 镜像节点全value赋值
+        for (nid = MIRROR_NODE_ID; nid <= REPLICA_NODE_TAIL_ID; nid++)
+        {
+            mica_set_remote_warpper(0, 
+                                    kvs[i].key,
+                                    key_hash, 
+                                    true_key_length, 
+                                    kvs[i].value,
+                                    true_value_length, 
+                                    0, true,
+                                    true, 
+                                    &req_callback_ptr[nid],
+                                    nid,
+                                    is_update,
+                                    server_instance->server_id,
+                                    nid);
+        }
+
+        for (nid = MIRROR_NODE_ID; nid <= REPLICA_NODE_TAIL_ID; nid++)
+        {
+            while(req_callback_ptr[nid].req_ptr->done_flag == false);
+
+            if (req_callback_ptr[nid].req_info_ptr->out_mapping_id == (size_t)-1)
+            {
+                ERROR_LOG("Main node set node[%d] key_hash [%lx] failed!", nid, req_callback_ptr[nid].req_info_ptr->key_hash);
+                exit(0);
+            }
+            else
+            {
+                // 主节点只需要保存直接下游节点的 mr 信息即可
+                if (nid == REPLICA_NODE_HEAD_ID)
+                {
+                    item->mapping_id = req_callback_ptr[nid].req_info_ptr->out_mapping_id;
+                    item->remote_value_addr = req_callback_ptr[nid].req_info_ptr->out_value_addr;
+                    INFO_LOG("Main node set node[%d] key_hash [%lx] success!, mapping id is %u, remote addr is %p", \
+                                    nid, item->key_hash, item->mapping_id, item->remote_value_addr);
+                }
+            }
+
+            free(req_callback_ptr[nid].req_ptr);
+        }
+
+        INFO_LOG("key hash [%lx] set to all replica node success!", key_hash);
+
+        if (is_maintable)
+            item_offset = get_offset_by_item(main_table, item);
+        else
+            item_offset = get_offset_by_item(log_table, item);
+ 
+        // 只写直接下游节点
+        // 还需要返回远端 value 的虚拟地址， 用来求偏移量
+        makeup_update_request(item, item_offset,\
+                             (uint8_t*)item_get_value_addr(item), \
+                             MEHCACHED_VALUE_LENGTH(item->kv_length_vec),
+                             nid);
+ 
+        INFO_LOG("key hash [%lx] notices downstream replica node!", key_hash);
+    }
+
+    free(req_callback_ptr);
+    mehcached_print_stats(main_table);
+    mehcached_print_stats(log_table);
+    // mehcached_table_free(main_table);
+    INFO_LOG("---------------------------test_set finished!---------------------------");
+    // 主线程等待1s，让输出更清晰一点
+    sleep(1);
+    test_get_consistent(kvs);
+    */
+}
+
+
+
+// 测试所有节点中的数据必须一致
+void test_get_consistent(struct test_kv * kvs MEHCACHED_UNUSED)
+{
+    // size_t i, nid;
+    // INFO_LOG("---------------------------test_get_consistent!---------------------------");
+    // for (i = 0; i < TEST_KV_NUM; i++)
+    // {
+    //     const uint8_t* key = kvs[i].key;
+    //     const uint8_t* value = kvs[i].value;
+    //     size_t true_key_length = kvs[i].true_key_length;
+    //     size_t true_value_length = kvs[i].true_value_length;
+    //     uint64_t key_hash = hash(key, true_key_length);
+    //     uint8_t* out_value = (uint8_t*)malloc(true_value_length);
+    //     size_t  out_value_length;
+    //     uint32_t expire_time;
+    //     struct dhmp_mica_get_response *get_result = NULL;
+
+    //     struct mehcached_item * item = kvs[i].item;
+    //     Assert(item != NULL);
+
+    //     // 测试本地 table 数据一致
+    //     if (!mid_mehcached_get_warpper(0, main_table, key_hash, key, true_key_length,\
+    //                                  out_value, &out_value_length, \
+    //                                  &expire_time, false, true))
+    //     {
+    //         ERROR_LOG("key hash [%lx] get false", key_hash);
+    //         Assert(false);
+    //     }
+
+    //     if (!cmp_item_value(true_value_length, value, out_value_length, out_value))
+    //     {
+    //         ERROR_LOG("local item key_hash [%lx] value compare false!", key_hash);
+    //         Assert(false);
+    //     }
+    //     INFO_LOG("No.<%d> Main Node [%d] set test success!", i, MAIN_NODE_ID);
+
+    //     // 测试镜像节点数据一致
+    //     get_result = mica_get_remote_warpper(0, key_hash, key, true_key_length, false, NULL, MIRROR_NODE_ID, server_instance->server_id, out_value_length, (size_t)i);
+    //     if (get_result == NULL || get_result->out_value_length == (size_t) - 1)
+    //     {
+    //         ERROR_LOG("MICA get key %lx failed!", key_hash);
+    //         Assert(false);
+    //     }
+    //     if (get_result->partial == true)
+    //     {
+    //         ERROR_LOG("value too long!");
+    //         Assert(false);
+    //     }
+
+    //     if (!cmp_item_value(true_value_length, value, MEHCACHED_VALUE_LENGTH(item->kv_length_vec), item_get_value_addr(item)))
+    //     {
+    //         ERROR_LOG(" item key_hash [%lx] value compare false!", key_hash);
+    //         Assert(false);
+    //     }
+
+    //     if (!cmp_item_all_value(get_result->out_value_length, get_result->out_value, MEHCACHED_VALUE_LENGTH(item->kv_length_vec), item_get_value_addr(item)))
+    //     {
+    //         ERROR_LOG("Mirror item key_hash [%lx] value compare false!", key_hash);
+    //         Assert(false);
+    //     }
+    //     free(get_result);
+    //     INFO_LOG("No.<%d>, Mirror Node [%d] set test success!", i, MIRROR_NODE_ID);
+
+    //     // 测试远端 replica 节点数据一致
+    //     for (nid = REPLICA_NODE_HEAD_ID; nid <= REPLICA_NODE_TAIL_ID; nid++)
+    //     {
+    //         // 如果 version 不一致，需要反复尝试get直到一致后才会返回结果
+    //         while(true)
+    //         {
+    //             // 远端获取的默认是带header和tailer的value
+    //             get_result = mica_get_remote_warpper(0, key_hash, key, true_key_length, false, NULL, nid, server_instance->server_id, out_value_length, (size_t)i);
+    //             if (get_result == NULL)
+    //             {
+    //                 ERROR_LOG("MICA get key %lx failed!", key_hash);
+    //                 Assert(false);
+    //             }
+                
+    //             if (get_result->out_value_length != (size_t) - 1)
+    //                 break;
+    //         }
+ 
+    //         if (get_result->partial == true)
+    //         {
+    //             ERROR_LOG("value too long!");
+    //             Assert(false);
+    //         }
+
+    //         if (!cmp_item_value(get_result->out_value_length, get_result->out_value, MEHCACHED_VALUE_LENGTH(item->kv_length_vec), item_get_value_addr(item)))
+    //         {
+    //             ERROR_LOG("Replica node [%d] item key_hash [%lx] value compare false!", nid, key_hash);
+    //             Assert(false);
+    //         }
+    //         INFO_LOG("No.<%d> Replica Node [%d] set test success!",i, nid);
+    //         free(get_result);
+    //     }
+
+    //     INFO_LOG("No.<%d> Key_hash [%lx] pas all compare scuess!", i, key_hash);
+    // }
+    // INFO_LOG("---------------------------test_get_consistent finish!---------------------------");
 }

@@ -336,13 +336,14 @@ mica_get_remote(uint8_t current_alloc_id,  uint64_t key_hash, const uint8_t *key
 		reuse_ptr->resp_ptr = NULL;
 		return;
 	}
+	INFO_LOG("Getting tag [%d] from node [%d]", tag ,target_id);
 
 	if (is_async == false)
 	{
 		DEFINE_STACK_TIMER();
 		MICA_TIME_COUNTER_INIT();
 		while(req_msg->done_flag == false)
-			MICA_TIME_LIMITED(0, TIMEOUT_LIMIT_MS);
+			MICA_TIME_LIMITED(tag, TIMEOUT_LIMIT_MS*10);
 		MICA_TIME_COUNTER_CAL("mica_get_remote");
 
 		// free(base);

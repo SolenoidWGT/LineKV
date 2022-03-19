@@ -28,6 +28,8 @@ volatile bool replica_is_ready = true;
 bool ica_cli_get(struct test_kv *kv_entry, void *user_buff, size_t *out_value_length, size_t target_id, size_t tag);
 struct test_kv * kvs;
 
+size_t get_fail_count = 0;
+
 struct dhmp_client *  
 dhmp_test_client_init(size_t buffer_size)
 {
@@ -47,6 +49,7 @@ mica_cli_get(struct test_kv *kv_entry, void *user_buff, size_t *out_value_length
     reuse_ptrs.req_base_ptr = NULL;
     reuse_ptrs.resp_ptr = NULL;
 
+    INFO_LOG("Get tag [%d], key is [%ld]", tag, *(size_t*)(kv_entry->key));
 Get_Retry:
     mica_get_remote_warpper(0, \
                         kv_entry->key_hash, \
@@ -76,15 +79,12 @@ Get_Retry:
             *out_value_length = resp->out_value_length;
             // 将数据从 recv_region 中拷贝出去，然后就可以发布 recv 任务了
             memcpy(user_buff, resp->msg_buff_addr, resp->out_value_length);
-            INFO_LOG("memcpy");
-            // 释放接受缓冲区,此时该块缓冲区就可以被其他的任务可见
-            dhmp_post_recv(resp->trans_data.rdma_trans, resp->trans_data.msg->data - sizeof(enum dhmp_msg_type) - sizeof(size_t));
             re = true;
-            INFO_LOG("dhmp_post_recv");
             break;
         case MICA_NO_KEY:
             ERROR_LOG("Tag [%d] not found key from node [%d]!", tag, target_id);
             re = false;
+            get_fail_count++;
             break;
         case MICA_VERSION_IS_DIRTY:
             ERROR_LOG("Tag [%d] key from node [%d] is dirty, retry!", tag, target_id);
@@ -92,6 +92,7 @@ Get_Retry:
         case MICA_GET_PARTIAL:
             ERROR_LOG("Tag [%d] value too long to store in buffer from node [%d]!", tag, target_id);
             re = false;
+            get_fail_count++;
             break;
         default:
             ERROR_LOG("Tag [%d] Unknow get status Node[%ld]", tag, target_id);
@@ -99,6 +100,8 @@ Get_Retry:
             break;
     }
 
+    // 释放接受缓冲区,此时该块缓冲区就可以被其他的任务可见
+    dhmp_post_recv(resp->trans_data.rdma_trans, resp->trans_data.msg->data - sizeof(enum dhmp_msg_type) - sizeof(size_t));
     // 释放所有指针
     free(container_of(&(resp->trans_data.msg->data), struct dhmp_msg , data));
     free(reuse_ptrs.req_base_ptr);
@@ -178,6 +181,7 @@ void workloada()
         if (i % 1000 == 0)
             ERROR_LOG("Count [%d]", i);
 	}
+    ERROR_LOG("Get failed count is [%ld]\n", get_fail_count);
     ERROR_LOG("workloada test FINISH! avg get time is [%ld]us, avg set time is [%ld]us",  get_time /( US_BASE * ACCESS_NUM /2), set_time /( US_BASE * ACCESS_NUM /2));
 }
 
@@ -281,7 +285,8 @@ int main(int argc,char *argv[])
             Assert(false);
     }
 
-    kvs = generate_test_data(1, 1, 1024-VALUE_HEADER_LEN-VALUE_TAIL_LEN, TEST_KV_NUM, (size_t)client_mgr->config.nets_cnt);
+    // kvs = generate_test_data(0, 1, 1024-VALUE_HEADER_LEN-VALUE_TAIL_LEN, TEST_KV_NUM, (size_t)client_mgr->config.nets_cnt);
+    kvs = generate_test_data(0, 1, test_size, TEST_KV_NUM, (size_t)client_mgr->config.nets_cnt);
 
     workloada();
 
