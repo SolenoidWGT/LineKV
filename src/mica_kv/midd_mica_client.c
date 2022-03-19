@@ -24,10 +24,13 @@
 
 #include "midd_mica_benchmark.h"
 
-
 volatile bool replica_is_ready = true;
 bool ica_cli_get(struct test_kv *kv_entry, void *user_buff, size_t *out_value_length, size_t target_id, size_t tag);
 struct test_kv * kvs;
+int __test_size;
+int read_num, update_num;
+enum WORK_LOAD_DISTRIBUTED workload_type;
+ 
 
 struct dhmp_client *  
 dhmp_test_client_init(size_t buffer_size)
@@ -78,8 +81,6 @@ Get_Retry:
             // 将数据从 recv_region 中拷贝出去，然后就可以发布 recv 任务了
             memcpy(user_buff, resp->msg_buff_addr, resp->out_value_length);
             INFO_LOG("memcpy");
-            // 释放接受缓冲区,此时该块缓冲区就可以被其他的任务可见
-            dhmp_post_recv(resp->trans_data.rdma_trans, resp->trans_data.msg->data - sizeof(enum dhmp_msg_type) - sizeof(size_t));
             re = true;
             INFO_LOG("dhmp_post_recv");
             break;
@@ -100,6 +101,8 @@ Get_Retry:
             break;
     }
 
+    // 释放接受缓冲区,此时该块缓冲区就可以被其他的任务可见
+    dhmp_post_recv(resp->trans_data.rdma_trans, resp->trans_data.msg->data - sizeof(enum dhmp_msg_type) - sizeof(size_t));
     // 释放所有指针
     free(container_of(&(resp->trans_data.msg->data), struct dhmp_msg , data));
     free(reuse_ptrs.req_base_ptr);
@@ -113,14 +116,25 @@ void workloada()
 {
 	int i = 0, j;
     size_t idx;
-	int read_num,update_num;
-	read_num = ACCESS_NUM /2;
-	update_num = ACCESS_NUM /2;
     struct timespec start_t, end_t;
     long long int set_time=0, get_time=0;
+    int __read_num = read_num;
+    int __update_num = update_num;
+    int suiji;
 
     // 生成Zipfian数据
-    pick(TEST_KV_NUM);
+    switch (workload_type)
+    {
+        case UNIFORM:
+            pick_uniform(TEST_KV_NUM);
+            break;
+        case ZIPFIAN:
+            pick_zipfian(TEST_KV_NUM);
+            break;
+        default:
+            ERROR_LOG("Unkown!");
+            break;
+    }
     INFO_LOG("pick");
 
     size_t out_value_length;
@@ -130,16 +144,12 @@ void workloada()
 		j = i % TEST_KV_NUM;
         idx = (size_t)rand_num[j];
 		srand((unsigned int)i);
-		int suiji = rand()%(read_num+update_num);
-#ifndef CRAQ
+		suiji = rand()%(__read_num+__update_num);
         size_t suiji_node = (size_t) (rand()%(client_mgr->config.nets_cnt - 2));  // 只从副本节点读取
-#else
-        size_t suiji_node = (size_t) (rand()%(client_mgr->config.nets_cnt)); 
-#endif
 		{
-			if(suiji < read_num)
+			if(suiji < __read_num)
 			{
-				read_num--;
+				__read_num--;
                 out_value_length = kvs[idx].true_value_length + VALUE_HEADER_LEN + VALUE_TAIL_LEN;
                 INFO_LOG("read from node [%ld], tag is [%ld]", suiji_node, idx);
 				// addr_table_read(addr_table[rand_num[j]],local_buf);
@@ -154,7 +164,7 @@ void workloada()
 			}
 			else
 			{
-				update_num --;
+				__update_num --;
 				// addr_table_update(addr_table[rand_num[j]],local_buf);
                 INFO_LOG("set tag is [%ld]", idx);
                 clock_gettime(CLOCK_MONOTONIC, &start_t);	
@@ -179,7 +189,12 @@ void workloada()
         if (i % 1000 == 0)
             ERROR_LOG("Count [%d]", i);
 	}
-    ERROR_LOG("workloada test FINISH! avg get time is [%ld]us, avg set time is [%ld]us",  get_time /( US_BASE * ACCESS_NUM /2), set_time /( US_BASE * ACCESS_NUM /2));
+
+    if (read_num!=0)
+        ERROR_LOG("workloada test FINISH! avg get time is [%ld]us",  get_time /( US_BASE * read_num));
+    if (update_num!=0)
+        ERROR_LOG("workloada test FINISH! avg set time is [%ld]us",  set_time /( US_BASE * update_num));
+
 }
 
 void debug_test()
@@ -264,10 +279,76 @@ int main(int argc,char *argv[])
 {
     Assert(TEST_KV_NUM < TABLE_BUCKET_NUMS);
     int i, reval;
+    INFO_LOG("Server argc is [%d]", argc);
+    Assert(argc==6);
     for (i = 0; i<argc; i++)
 	{
-		CLINET_ID = (size_t)(*argv[i] - '0');
-        INFO_LOG("Client is %d", CLINET_ID);
+        if (i==1)
+        {
+            CLINET_ID = (size_t)(*argv[i] - '0');
+            INFO_LOG("Server node_id is [%d]", CLINET_ID);
+        }
+        else if (i==2)
+        {
+            __partition_nums = atoi(argv[i]);
+            Assert(__partition_nums >0 && __partition_nums < PARTITION_MAX_NUMS);
+            INFO_LOG("Client __partition_nums is [%d]", __partition_nums);
+        }
+        else if (i==3)
+        {
+            __test_size = atoi(argv[i]);
+            INFO_LOG("Server __test_size is [%d]", __test_size);
+        }
+        else if (i==4)
+        {
+            if (strcmp(argv[i], "uniform") == 0)
+            {
+                INFO_LOG("Server workload_type is [%s]", argv[i]);
+                workload_type=UNIFORM;
+            }
+            else if (strcmp(argv[i], "zipfian") == 0)
+            {
+                INFO_LOG("Server workload_type is [%s]", argv[i]);
+                workload_type=ZIPFIAN;
+            }
+            else
+            {
+                ERROR_LOG("Unkown workload!");
+                exit(0);
+            }
+        }
+        else if (i==5)
+        {
+            if(strcmp(argv[i], "1:1") == 0)
+            {
+                INFO_LOG("Server RW_TATE is [%s]", argv[i]);
+                read_num = ACCESS_NUM /2;
+                update_num = ACCESS_NUM /2;
+            }
+            else if(strcmp(argv[i], "0:1") == 0)
+            {
+                INFO_LOG("Server RW_TATE is [%s]", argv[i]);
+                read_num = 0;
+                update_num = ACCESS_NUM;
+            }
+            else if(strcmp(argv[i], "1:0") == 0)
+            {
+                INFO_LOG("Server RW_TATE is [%s]", argv[i]);
+                read_num = ACCESS_NUM;
+                update_num = 0;
+            }
+            else if(strcmp(argv[i], "4:1") == 0)
+            {
+                INFO_LOG("Server RW_TATE is [%s]", argv[i]);
+                read_num = (int)(0.8 * ACCESS_NUM);
+                update_num = (int)(0.2 * ACCESS_NUM);
+            }
+            else
+            {
+                ERROR_LOG("Unkown rate!");
+                exit(0);
+            }
+        }
 	}
 
     INFO_LOG("MICA_MIDD_TEST_client");
@@ -282,7 +363,8 @@ int main(int argc,char *argv[])
             Assert(false);
     }
 
-    kvs = generate_test_data(1, 1, 1024-VALUE_HEADER_LEN-VALUE_TAIL_LEN, TEST_KV_NUM, (size_t)client_mgr->config.nets_cnt);
+    // kvs = generate_test_data(1, 1, 1024-VALUE_HEADER_LEN-VALUE_TAIL_LEN, TEST_KV_NUM, (size_t)client_mgr->config.nets_cnt);
+    kvs = generate_test_data(1, 1, __test_size , TEST_KV_NUM, (size_t)client_mgr->config.nets_cnt);
 
     workloada();
 

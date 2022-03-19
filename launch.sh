@@ -12,6 +12,16 @@ export LIBC_FATAL_STDERR_=1
 TASK_TYPE=$1
 GLOABL_PIDS_ARRAY=()
 TOTAL_NODE_NUMS=0
+
+# 分区数量
+THREAD_NUM=1
+# 测试value大小 单位Byte
+TEST_VALUE_SIZE=32
+# 数据分布
+TEST_DISTRIBUTED="uniform"
+# 读写比例
+TEST_RW_RATE="0:1"
+
 mulitiRun(){
     COUNTER=$1
     PROCESS_NUMS=$2
@@ -22,9 +32,9 @@ mulitiRun(){
         # 不能写成如下形式，这样 $! 的pid 就不一样了
         # { nohup ./bin/mica;  }  >"$COUNTER.log" 2>&1  &
         if [ $BIN_NAME = "mica" ];then
-            nohup "./bin/$BIN_NAME" $TOTAL_NODE_NUMS >"$COUNTER.$BIN_NAME.log" 2>&1  &
+            nohup "./bin/$BIN_NAME" $TOTAL_NODE_NUMS $THREAD_NUM  >"$COUNTER.$BIN_NAME.log" 2>&1  &
         else
-            nohup "./bin/$BIN_NAME" $TOTAL_NODE_NUMS >"$COUNTER.$BIN_NAME.log" 2>&1  &
+            nohup "./bin/$BIN_NAME" $TOTAL_NODE_NUMS $THREAD_NUM $TEST_VALUE_SIZE $TEST_DISTRIBUTED $TEST_RW_RATE>"$COUNTER.$BIN_NAME.log" 2>&1  &
         fi
         # exec 2>> $COUNTER.log && ./bin/mica < in 2>&1 >> $COUNTER.log &
         echo "Launch mica pid[$!]"
@@ -73,7 +83,6 @@ launch_mica_CRAQ_task(){
 whoami
 rm -f *.log 
 rm -f *.core.*
-
 
 if [[ $TASK_TYPE = "LineKV" ]];
 then

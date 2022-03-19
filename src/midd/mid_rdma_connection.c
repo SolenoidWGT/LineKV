@@ -553,6 +553,8 @@ static int on_cm_established(struct rdma_cm_event* event, struct dhmp_transport*
 
 static int on_cm_disconnected(struct rdma_cm_event* event, struct dhmp_transport* rdma_trans)
 {
+		ERROR_LOG("unexpected disconnect!");
+	Assert(false);
 	dhmp_destroy_source(rdma_trans);
 	rdma_trans->trans_state = DHMP_TRANSPORT_STATE_DISCONNECTED;
 	// 新增判断逻辑，分离server 和 client 的trans连接断开
