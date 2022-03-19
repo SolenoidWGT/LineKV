@@ -12,10 +12,8 @@
 #include "mica_partition.h"
 
 struct list_head tmp_send_list;   
-struct list_head nic_send_list[PARTITION_NUMS];
-
-
-static volatile uint64_t nic_sendQ_lock[PARTITION_NUMS];
+struct list_head nic_send_list[PARTITION_MAX_NUMS];
+static volatile uint64_t nic_sendQ_lock[PARTITION_MAX_NUMS];
 static void memory_barrier();
 volatile bool nic_thread_ready = false;
 

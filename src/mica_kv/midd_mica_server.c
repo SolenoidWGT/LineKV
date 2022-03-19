@@ -16,9 +16,9 @@
 #include "dhmp_top_api.h"
 #include "nic.h"
 
-#include "midd_mica_benchmark.h"
+#include "mica_partition.h"
+pthread_t nic_thread[PARTITION_MAX_NUMS];
 
-pthread_t nic_thread[PARTITION_NUMS];
 void* (*main_node_nic_thread_ptr) (void* );
 void* (*replica_node_nic_thread_ptr) (void* );
 void test_set(struct test_kv * kvs);
@@ -27,9 +27,6 @@ volatile bool replica_is_ready = false;
 static size_t SERVER_ID= (size_t)-1;
 bool is_single_thread;
 int test_size;
-
-struct test_kv kvs_group[TEST_KV_NUM];
-static void free_test_date();
 
 int main(int argc,char *argv[])
 {
@@ -43,7 +40,7 @@ int main(int argc,char *argv[])
     const size_t num_pages_to_reserve = 16384 - 2048;   // give 2048 pages to dpdk
     
     INFO_LOG("Server argc is [%d]", argc);
-    Assert(argc==4);
+    Assert(argc==3);
     for (i = 0; i<argc; i++)
 	{
         if (i==1)
@@ -53,15 +50,9 @@ int main(int argc,char *argv[])
         }
         else if (i==2)
         {
-            retval=(int)(*argv[i] - '0');
-            is_single_thread = retval;
-            INFO_LOG("Server is_single_thread is [%d]", is_single_thread);
-
-        }
-        else if (i==3)
-        {
-            test_size = atoi(argv[i]);
-            INFO_LOG("Server test_size is [%d]", test_size);
+            __partition_nums = atoi(argv[i]);
+            Assert(__partition_nums >0 && __partition_nums < PARTITION_MAX_NUMS);
+            INFO_LOG("Server __partition_nums is [%d]", __partition_nums);
         }
 	}
 

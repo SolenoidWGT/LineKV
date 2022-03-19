@@ -365,7 +365,7 @@ find_item(struct mehcached_table *table, uint64_t key_hash, const uint8_t* key, 
 
 size_t mehcached_find_item_index_warpper(const struct mehcached_table *table, struct mehcached_bucket *bucket, uint64_t key_hash, uint16_t tag, const uint8_t *key, size_t key_length, struct mehcached_bucket **located_bucket);
 
-extern struct list_head nic_send_list[PARTITION_NUMS];
+extern struct list_head nic_send_list[PARTITION_MAX_NUMS];
 
 uint8_t * item_get_key_addr(struct mehcached_item *item);
 uint8_t * item_get_value_addr(struct mehcached_item *item);

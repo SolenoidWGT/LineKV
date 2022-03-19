@@ -36,12 +36,12 @@ struct dhmp_context{
 };
 
 struct mica_work_context{
-	pthread_t threads[PARTITION_NUMS];
+	pthread_t threads[PARTITION_MAX_NUMS];
 
 	// 为什么 mica 使用的是 int64 作为 cas ，而不是使用 char ， char 的读取难道不能保证原子吗，多核？单核？多CPU？
-	volatile /*char*/ uint64_t  bit_locks[PARTITION_NUMS];
+	volatile /*char*/ uint64_t  bit_locks[PARTITION_MAX_NUMS];
 
-	struct dhmp_mica_msg_data buff_msg_data[PARTITION_NUMS];
+	struct dhmp_mica_msg_data buff_msg_data[PARTITION_MAX_NUMS];
 };
 
 int dhmp_context_init(struct dhmp_context *ctx);

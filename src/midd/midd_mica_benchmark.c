@@ -18,7 +18,7 @@ double pf[TEST_KV_NUM];
 int rand_num[TEST_KV_NUM]={0};
 
 // 生成符合Zipfian分布的数据
-void generate()
+void generate_zipfian()
 {
     int i;
     double sum = 0.0;
@@ -36,11 +36,11 @@ void generate()
 }
 
 // 根据Zipfian分布生成索引
-void pick(int max_num)
+void pick_zipfian(int max_num)
 {
 	int i, index;
 
-    generate();
+    generate_zipfian();
 
     srand(time(0));
     for ( i= 0; i < max_num; i++)
@@ -50,6 +50,23 @@ void pick(int max_num)
         while (index<(max_num)&&data > pf[index])   
             index++;
 		rand_num[i]=index;
+    }
+}
+
+void pick_uniform(int max_num)
+{
+	int i, rand_idx, tmp;
+
+    for (i=0 ;i<max_num; i++)
+        rand_num[i] = i;
+
+    srand(time(0));
+    for ( i= 0; i < max_num; i++)
+    {
+        rand_idx = rand() % max_num; 
+        tmp = rand_num[i];
+        rand_num[i] = rand_num[rand_idx];
+        rand_num[rand_idx] = tmp;
     }
 }
 
@@ -85,12 +102,6 @@ generate_test_data(size_t key_offset, size_t val_offset, size_t value_length, si
     }
 
     return kvs_group;
-}
-
-static void
-free_test_date()
-{
-
 }
 
 	// size_t 	 out_value_length; 	// 返回值

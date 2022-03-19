@@ -413,7 +413,7 @@ struct test_kv
 {
 	uint8_t * key;
 	uint8_t * value;
-	uint8_t * get_value[PARTITION_NUMS];
+	uint8_t * get_value[PARTITION_MAX_NUMS];
 	size_t true_key_length;
 	size_t true_value_length;
 	uint64_t key_hash;

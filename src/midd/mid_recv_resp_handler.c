@@ -24,6 +24,7 @@ long long int total_set_time = 0, total_get_time =0;
 static struct dhmp_msg * make_basic_msg(struct dhmp_msg * res_msg, struct post_datagram *resp, enum dhmp_msg_type type );
 
 struct mica_work_context * mica_work_context_mgr[2];
+int __partition_nums;
 
 // 由于 send 操作可能会被阻塞住，所以必须将 recv 操作让另一个线程处理，否则会出现死锁。
 // 我们对每一个 partition 启动两个线程
