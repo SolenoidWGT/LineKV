@@ -36,7 +36,7 @@ SET (LIBRARY_OUTPUT_PATH ${MIDD_MICA_SOURCE_DIR}/lib)
 # 指定生成目标
 if(NOT "${NLOCAL}" STREQUAL "yes")
 	# test
-    add_executable(ibtest ibtest.c)
+    add_executable(ibtest test_RTT.c)
     # 添加链接库
 	target_link_libraries(ibtest ${LIBRARIES})
     # target_link_libraries(ibtest micalib)

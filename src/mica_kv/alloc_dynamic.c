@@ -56,11 +56,11 @@ mehcached_dynamic_init(struct mehcached_dynamic *alloc, uint64_t size, bool conc
     }
     while (true)
     {
-        // alloc->data = mehcached_shm_find_free_address(size);
-        // if (alloc->data == NULL)
-        //     Assert(false);
+        alloc->data = mehcached_shm_find_free_address(size);
+        if (alloc->data == NULL)
+            Assert(false);
 
-        size_t mapping_id  = mehcached_shm_map(shm_id, alloc->data,(void**) &alloc->data, 0, size, false);
+        size_t mapping_id  = mehcached_shm_map(shm_id, alloc->data, (void**) &alloc->data, 0, size, false);
         if (mapping_id != (size_t) -1)
         {
             alloc->mapping_id = mapping_id;

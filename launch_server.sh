@@ -17,12 +17,12 @@ TASK_TYPE=$1
 NODE_ID=$2
 # 分区数量
 THREAD_NUM=$3
-# 测试value大小 单位Byte
-TEST_VALUE_SIZE=$4
-# 数据分布
-TEST_DISTRIBUTED=$5
-# 读写比例
-TEST_RW_RATE=$6
+# # 测试value大小 单位Byte
+# TEST_VALUE_SIZE=$4
+# # 数据分布
+# TEST_DISTRIBUTED=$5
+# # 读写比例
+# TEST_RW_RATE=$6
 
 echo "Task: $TASK_TYPE, Node ID: $NODE_ID, Partition_num: $THREAD_NUM, Value_size: $TEST_VALUE_SIZE, $TEST_DISTRIBUTED, $TEST_RW_RATE"
 

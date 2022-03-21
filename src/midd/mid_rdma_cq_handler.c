@@ -11,7 +11,6 @@
 #include "dhmp_log.h"
 #include "dhmp_dev.h"
 
-
 /**
  *	the success work completion handler function
  * 
@@ -27,14 +26,22 @@ static void dhmp_wc_success_handler(struct ibv_wc* wc)
 	// struct dhmp_msg msg;
 	
 	bool is_async = false;
-	DEFINE_STACK_TIMER();
-
+	
+	//DEFINE_STACK_TIMER();
+	struct timespec start, end;
 	task_ptr=(struct dhmp_task*)(uintptr_t)wc->wr_id;
 	rdma_trans=task_ptr->rdma_trans;
 
 	switch(wc->opcode)
 	{
 		case IBV_WC_SEND:
+			break;
+
+		case IBV_WC_RECV_RDMA_WITH_IMM: // 镜像节点(imm的接收方)唤醒，去处理主节点的写请求
+			//INFO_LOG("imm_data [%x]", ntohl(wc->imm_data));
+			dhmp_mica_set_request_handler(rdma_trans, NULL);
+			dhmp_post_recv(rdma_trans, task_ptr->sge.addr);
+			//INFO_LOG("IBV_WC_RECV_RDMA_WITH_IMM");
 			break;
 		case IBV_WC_RECV:
 			msg = (struct dhmp_msg *) malloc(sizeof(struct dhmp_msg));
@@ -43,8 +50,9 @@ static void dhmp_wc_success_handler(struct ibv_wc* wc)
 			msg->data_size=*(size_t*)(task_ptr->sge.addr+sizeof(enum dhmp_msg_type));
 			msg->data=task_ptr->sge.addr+sizeof(enum dhmp_msg_type)+sizeof(size_t);
 			
-			MICA_TIME_COUNTER_INIT();
-			dhmp_wc_recv_handler(rdma_trans, msg, &is_async);
+			//MICA_TIME_COUNTER_INIT();
+			clock_gettime(CLOCK_MONOTONIC, &start);
+			dhmp_wc_recv_handler(rdma_trans, msg, &is_async,start.tv_sec, start.tv_nsec );
 			// dhmp_post_recv 需要放到多线程的末尾去处理
 			// 发送双边操作的数据大小不能超过  SINGLE_NORM_RECV_REGION （16MB）
 			if (! is_async)
@@ -52,16 +60,21 @@ static void dhmp_wc_success_handler(struct ibv_wc* wc)
 				dhmp_post_recv(rdma_trans, task_ptr->sge.addr);
 				free(msg);
 			}
-			MICA_TIME_COUNTER_CAL("dhmp_wc_recv_handler");
+			//MICA_TIME_COUNTER_CAL("dhmp_wc_recv_handler");
 			break;
+
 		case IBV_WC_RDMA_WRITE:
 #ifdef DHMP_MR_REUSE_POLICY
 			// 如果该区域的内存小于RDMA_SEND_THREASHOLD，则回收（不是释放）该块注册内存，用于下一次的数据传输
-			if (task_ptr->sge.length <= RDMA_SEND_THREASHOLD)
+			//INFO_LOG("reused addr is [%p]", task_ptr->sge.addr);
+			if (!task_ptr->is_imm)
 			{
-				pthread_mutex_lock(&client_mgr->mutex_send_mr_list);
-				list_add(&task_ptr->smr->send_mr_entry, &client_mgr->send_mr_list);
-				pthread_mutex_unlock(&client_mgr->mutex_send_mr_list);
+				if (task_ptr->sge.length <= RDMA_SEND_THREASHOLD)
+				{
+					pthread_mutex_lock(&client_mgr->mutex_send_mr_list);
+					list_add(&task_ptr->smr->send_mr_entry, &client_mgr->send_mr_list);
+					pthread_mutex_unlock(&client_mgr->mutex_send_mr_list);
+				}
 			}
 #endif
 			// task_ptr->addr_info->write_flag=false;
@@ -90,7 +103,7 @@ static void dhmp_wc_error_handler(struct ibv_wc* wc)
 	{
 		ERROR_LOG("wc status is [%s], byte_len is [%u], opcode is [%s]", \
 				ibv_wc_status_str(wc->status), wc->byte_len, dhmp_wc_opcode_str(wc->opcode));
-		exit(0);
+		exit(-1);
 	}
 
 }
@@ -100,34 +113,50 @@ static void dhmp_wc_error_handler(struct ibv_wc* wc)
  *  note:set the following function to the cq handle work completion
  *  epoll回调函数入口
  */
-void dhmp_comp_channel_handler(int fd, void* data)
+void dhmp_comp_channel_handler(struct dhmp_cq* dcq)
 {
-	struct dhmp_cq* dcq =(struct dhmp_cq*) data;
+	// struct dhmp_cq* dcq =(struct dhmp_cq*) data;
 	struct ibv_cq* cq;
 	void* cq_ctx;
 	struct ibv_wc wc;
 	int err=0;
 
-	err=ibv_get_cq_event(dcq->comp_channel, &cq, &cq_ctx);
-	if(err)
+	while(true)
 	{
-		ERROR_LOG("ibv get cq event error.");
-		return ;
-	}
+		if (*dcq->stop_flag_ptr == true)
+		{
+			INFO_LOG("dhmp_comp_channel_handler thread exit!");
+			pthread_exit(0);
+		}
 
-	ibv_ack_cq_events(dcq->cq, 1);
-	err=ibv_req_notify_cq(dcq->cq, 0);
-	if(err)
-	{
-		ERROR_LOG("ibv req notify cq error.");
-		return ;
-	}
+		// //while(ibv_get_cq_event(dcq->comp_channel, &cq, &cq_ctx));
+		// err=ibv_get_cq_event(dcq->comp_channel, &cq, &cq_ctx);
+		// if(err)
+		// {
+		// 	//ERROR_LOG("ibv get cq event error.");
+		// 	continue;
+		// }
 
-	while(ibv_poll_cq(dcq->cq, 1, &wc))
-	{
-		if(wc.status==IBV_WC_SUCCESS)
-			dhmp_wc_success_handler(&wc);
-		else
-			dhmp_wc_error_handler(&wc);
+		// ibv_ack_cq_events(dcq->cq, 1);
+		// err=ibv_req_notify_cq(dcq->cq, 0);
+		// if(err)
+		// {
+		// 	//ERROR_LOG("ibv req notify cq error.");
+		// 	continue;
+		// }
+
+		while(ibv_poll_cq(dcq->cq, 1, &wc))
+		{
+			if(wc.status==IBV_WC_SUCCESS)
+				dhmp_wc_success_handler(&wc);
+			else
+				dhmp_wc_error_handler(&wc);
+		}
 	}
+}
+
+void busy_wait_cq_handler(void* data)
+{
+	struct dhmp_cq* dcq = (struct dhmp_cq* )data;
+	dhmp_comp_channel_handler(dcq);
 }

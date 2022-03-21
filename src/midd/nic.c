@@ -13,6 +13,7 @@
 
 struct list_head tmp_send_list;   
 struct list_head nic_send_list[PARTITION_MAX_NUMS];
+uint64_t work_nums[PARTITION_MAX_NUMS];
 static volatile uint64_t nic_sendQ_lock[PARTITION_MAX_NUMS];
 
 
@@ -66,8 +67,8 @@ makeup_update_request(struct mehcached_item * item, uint64_t item_offset, const 
 
     // 填充 dhmp_write_request 结构体
     up_req->write_info.rdma_trans = find_connect_server_by_nodeID(next_id);
-    up_req->write_info.mr = mehcached_get_mapping_self_mr(next_node_mappings, item->mapping_id);
-    dump_mr(up_req->write_info.mr);
+    up_req->write_info.mr = &next_node_mappings->mrs[item->mapping_id];
+    //dump_mr(up_req->write_info.mr);
     up_req->write_info.local_addr = (void*)value;
     up_req->write_info.length = value_length;
     up_req->write_info.remote_addr = item->remote_value_addr;
@@ -83,14 +84,13 @@ makeup_update_request(struct mehcached_item * item, uint64_t item_offset, const 
 #else
     nic_partition_id = 0;
 #endif
-    
     nic_sending_queue_lock(nic_partition_id);
     // memory_barrier();
     list_add(&up_req->sending_list,  &nic_send_list[nic_partition_id]);
-    nic_list_length++;
+    work_nums[nic_partition_id]++;
     nic_sending_queue_unlock(nic_partition_id);
 
-    INFO_LOG("Node [%d] add send list", server_instance->server_id);
+    // INFO_LOG("Node [%d] add send list", server_instance->server_id);
 }
 
 // NIC 只负责发送数据部分
@@ -109,6 +109,7 @@ void * main_node_nic_thread(void * args)
     pthread_detach(pthread_self());
     INIT_LIST_HEAD(&nic_send_list[partition_id]);
     INIT_LIST_HEAD(&tmp_send_list);
+    work_nums[partition_id] = 0;
 
     nic_thread_ready = true;
     INFO_LOG("Node [%d] start nic thread!", server_instance->server_id);
@@ -119,9 +120,8 @@ void * main_node_nic_thread(void * args)
         struct dhmp_update_request * send_req=NULL, * temp_send_req=NULL;
 
         // 链表的长度不要太短，有足够多的key后再尝试获取锁
-        // 这是什么傻逼设计？？
-        // if (nic_list_length < 10)
-        //     continue;
+        if (work_nums[partition_id] == 0)
+            continue;
 
         // 拷贝发送链表头节点，并重新初始化发送链表为空
         // 减少锁的争抢
@@ -140,7 +140,7 @@ void * main_node_nic_thread(void * args)
          */
         list_for_each_entry_safe(send_req, temp_send_req, &tmp_send_list, sending_list)
         {
-            INFO_LOG("NIC send remote_addr %lu", send_req->write_info.remote_addr);
+            //INFO_LOG("NIC send remote_addr %lu", send_req->write_info.remote_addr);
             void * key = item_get_key_addr(send_req->item);
 
             re = dhmp_rdma_write_packed(&send_req->write_info);
@@ -157,7 +157,7 @@ void * main_node_nic_thread(void * args)
 
             // 防止内存泄漏
             free(send_req);
-            nic_list_length--;
+            work_nums[partition_id]--;
         }
 
         // 将本地头节点初始化为空

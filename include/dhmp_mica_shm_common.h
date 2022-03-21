@@ -1,7 +1,7 @@
 /*
  * @Author: your name
  * @Date: 2022-02-28 16:09:39
- * @LastEditTime: 2022-03-09 21:39:04
+ * @LastEditTime: 2022-03-21 00:41:14
  * @LastEditors: Please set LastEditors
  * @Description: 打开koroFileHeader查看配置 进行设置: https://github.com/OBKoro1/koro1FileHeader/wiki/%E9%85%8D%E7%BD%AE
  * @FilePath: /LineKV/include/dhmp_mica_shm_common.h
@@ -53,16 +53,34 @@ struct replica_mappings
 	bool first_inited;
 	int node_id;
 	size_t used_mapping_nums;
+
+	void * mirror_virtual_addr;
+	struct ibv_mr mirror_mr;
+	volatile bool in_used_flag;
+
 	struct mehcached_shm_mapping mehcached_shm_pages[MEHCACHED_SHM_MAX_MAPPINGS];
 	struct ibv_mr 			 	 mrs[MEHCACHED_SHM_MAX_MAPPINGS];
 };
 
+
+struct p2p_mappings
+{
+	struct ibv_mr *p2p_mr;
+	void * p2p_addr;
+};
 
 void copy_mapping_info(void * src);
 void copy_mapping_mrs_info(struct ibv_mr * mrs);
 inline size_t get_mapping_nums();
 
 extern struct replica_mappings * next_node_mappings;
+extern struct replica_mappings * mirror_node_mapping;
+// extern struct p2p_mappings * busy_wait_rdma_p2p[PARTITION_MAX_NUMS];
+
+
 struct ibv_mr * mehcached_get_mapping_self_mr(struct replica_mappings * mappings, size_t mapping_id);
 void makeup_update_request(struct mehcached_item * item, uint64_t item_offset, const uint8_t *value, uint32_t value_length, size_t tag);
+
+extern size_t table_mapping_id_1, table_mapping_id_2, pool_mapping_id;
+inline struct ibv_mr* return_shm_mr(size_t idx);
 #endif

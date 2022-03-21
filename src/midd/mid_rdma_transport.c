@@ -274,21 +274,22 @@ int dhmp_rdma_write (struct dhmp_transport* rdma_trans,
 						struct ibv_mr* mr, 
 						void* local_addr, 
 						size_t length,
-						uintptr_t remote_addr)
+						uintptr_t remote_addr,
+						bool is_imm)
 {
+	long long get_mr_time=0;
 	struct timespec start_time, end_time;
-
 	struct dhmp_task* write_task;
 	struct ibv_send_wr send_wr,*bad_wr=NULL;
 	struct ibv_sge sge;
 	struct dhmp_send_mr* smr=NULL;
 	int err=0;
 	
-	//clock_gettime(CLOCK_MONOTONIC, &start_time);
+	clock_gettime(CLOCK_MONOTONIC, &start_time);
 	smr=dhmp_get_mr_from_send_list(rdma_trans, local_addr, (int)length);
-	// clock_gettime(CLOCK_MONOTONIC, &end_time);
-	// get_mr_time += ((end_time.tv_sec * 1000000000) + end_time.tv_nsec) -
-    //                     ((start_time.tv_sec * 1000000000) + start_time.tv_nsec);
+	clock_gettime(CLOCK_MONOTONIC, &end_time);
+	get_mr_time += ((end_time.tv_sec * 1000000000) + end_time.tv_nsec) - ((start_time.tv_sec * 1000000000) + start_time.tv_nsec);
+	//INFO_LOG("get_mr_time: %ld", get_mr_time);
 						
 	write_task=dhmp_write_task_create(rdma_trans, smr, (int)length);
 	if(!write_task)
@@ -297,11 +298,18 @@ int dhmp_rdma_write (struct dhmp_transport* rdma_trans,
 		return -1;
 	}
 	// write_task->addr_info=addr_info;
-
 	memset(&send_wr, 0, sizeof(struct ibv_send_wr));
 
+	if (is_imm)
+	{
+		send_wr.opcode=IBV_WR_RDMA_WRITE_WITH_IMM;
+		send_wr.imm_data   = htonl(0x1234);
+		mirror_node_mapping->in_used_flag = true;
+	}
+	else
+		send_wr.opcode=IBV_WR_RDMA_WRITE;
+
 	send_wr.wr_id= ( uintptr_t ) write_task;
-	send_wr.opcode=IBV_WR_RDMA_WRITE;
 	send_wr.sg_list=&sge;
 	send_wr.num_sge=1;
 	send_wr.send_flags=IBV_SEND_SIGNALED;
@@ -313,6 +321,7 @@ int dhmp_rdma_write (struct dhmp_transport* rdma_trans,
 	sge.length=write_task->sge.length;
 	sge.lkey=write_task->sge.lkey;
 
+	// INFO_LOG("dhmp_rdma_write addr is [%p]", write_task->sge.addr);
 #ifdef DHMP_MR_REUSE_POLICY
 	if (length <= RDMA_SEND_THREASHOLD)
 		memcpy(write_task->sge.addr, local_addr, length);
@@ -325,8 +334,10 @@ int dhmp_rdma_write (struct dhmp_transport* rdma_trans,
 		exit(-1);
 		goto error;
 	}
-
+	DEFINE_STACK_TIMER();
+	MICA_TIME_COUNTER_INIT();
 	while (!write_task->done_flag);
+		MICA_TIME_LIMITED(0, TIMEOUT_LIMIT_MS);
 	// DEBUG_LOG("after read_mr[%d] addr content is %s", rdma_trans->node_id, client_mgr->read_mr[rdma_trans->node_id]->mr->addr);
 
 #ifdef DHMP_MR_REUSE_POLICY
@@ -481,17 +492,19 @@ error:
 int dhmp_rdma_write_packed (struct dhmp_write_request * write_req)
 {
 	return dhmp_rdma_write(write_req->rdma_trans, write_req->mr, \
-			write_req->local_addr, write_req->length, write_req->remote_addr);	
+			write_req->local_addr, write_req->length, write_req->remote_addr, false);	
 }
 
 int dhmp_rdma_write_mica_warpper (struct dhmp_transport* rdma_trans,
 						struct mehcached_item * item,
 						struct ibv_mr* mr, 
 						size_t length,
-						uintptr_t remote_addr)
+						void* remote_addr,
+						bool is_imm)
 {
 	dhmp_rdma_write(rdma_trans, mr, 
 					(void*)item_get_value_addr(item), 
-					VALUE_HEADER_LEN + length  + VALUE_TAIL_LEN, 
-					remote_addr);
-}						
+					length, 
+					remote_addr,
+					is_imm);
+}

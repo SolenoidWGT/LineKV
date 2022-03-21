@@ -7,9 +7,10 @@
  * @FilePath: /LineKV/include/midd_mica_benchmark.h
  */
 
-#define TEST_KV_NUM  64
-#define ACCESS_NUM 300
+#define TEST_KV_NUM 64
+#define ACCESS_NUM __access_num
 
+extern int __access_num;
 extern int rand_num[TEST_KV_NUM];
 
 void pick_zipfian(int max_num);

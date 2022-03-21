@@ -26,16 +26,8 @@ void* (*main_node_nic_thread_ptr) (void* );
 void* (*replica_node_nic_thread_ptr) (void* );
 void test_set(struct test_kv * kvs);
 
-volatile bool replica_is_ready = false;
+
 static size_t SERVER_ID= (size_t)-1;
-
-
-struct test_kv kvs_group[TEST_KV_NUM];
-static void free_test_date();
-
-
-
-
 
 int main(int argc,char *argv[])
 {
@@ -43,7 +35,7 @@ int main(int argc,char *argv[])
     int i, retval;
     int nic_thread_num;
     size_t numa_nodes[] = {(size_t)-1};;
-    const size_t page_size = 1048576 * 2;
+    const size_t page_size = 4*1024UL;
 	const size_t num_numa_nodes = 2;
     const size_t num_pages_to_try = 16384;
     const size_t num_pages_to_reserve = 16384 - 2048;   // give 2048 pages to dpdk
@@ -73,6 +65,7 @@ int main(int argc,char *argv[])
     // 初始化 hook
     // set_main_node_thread_addr(&main_node_nic_thread_ptr);
     // set_replica_node_thread_addr(&replica_node_nic_thread_ptr);
+    // init_busy_wait_rdma_buff();
 
     // 初始化本地存储，分配 page
 	mehcached_shm_init(page_size, num_numa_nodes, num_pages_to_try, num_pages_to_reserve);
@@ -103,6 +96,9 @@ int main(int argc,char *argv[])
              numa_nodes[0], numa_nodes, MEHCACHED_MTH_THRESHOLD_FIFO);
         mehcached_table_init(log_table, TABLE_BUCKET_NUMS, 1, TABLE_POOL_SIZE, true, true, true,\
              numa_nodes[0], numa_nodes, MEHCACHED_MTH_THRESHOLD_FIFO);
+
+        mirror_node_mapping = (struct replica_mappings *) malloc(sizeof(struct replica_mappings));
+        memset(mirror_node_mapping, 0, sizeof(struct replica_mappings));
         Assert(main_table);
     }
 
@@ -128,6 +124,9 @@ int main(int argc,char *argv[])
 
 		// for (nid = REPLICA_NODE_HEAD_ID; nid <= REPLICA_NODE_TAIL_ID; nid++)
 		micaserver_get_cliMR(next_node_mappings, REPLICA_NODE_HEAD_ID);
+
+        // 主节点需要知道镜像节点的一块mr地址
+        micaserver_get_cliMR(mirror_node_mapping, MIRROR_NODE_ID);
 
 		// 等待全部节点初始化完成,才能开放服务
 		// 因为是主节点等待，所以主节点主动去轮询，而不是被动等待从节点发送完成信号
@@ -163,7 +162,8 @@ int main(int argc,char *argv[])
         // 启动网卡线程
         for (i=0; i<nic_thread_num; i++)
         {
-            retval = pthread_create(&nic_thread[i], NULL, main_node_nic_thread, (void*)i);
+            int64_t nic_id = (int64_t)i;
+            retval = pthread_create(&nic_thread[i], NULL, main_node_nic_thread, (void*)nic_id);
             if(retval)
             {
                 ERROR_LOG("pthread create error.");
@@ -217,7 +217,8 @@ int main(int argc,char *argv[])
             //pthread_create(&nic_thread, NULL, *replica_node_nic_thread_ptr, NULL);
             for (i=0; i<nic_thread_num; i++)
             {
-                retval = pthread_create(&nic_thread[i], NULL, main_node_nic_thread, (void*)i);
+                int64_t nic_id = (int64_t)i;
+                retval = pthread_create(&nic_thread[i], NULL, main_node_nic_thread, (void*)nic_id);
                 if(retval)
                 {
                     ERROR_LOG("pthread create error.");
@@ -277,6 +278,7 @@ int main(int argc,char *argv[])
     }
 
     pthread_join(server_instance->ctx.epoll_thread, NULL);
+    // pthread_join(server_instance->ctx.busy_wait_cq_thread, NULL);
     return 0;
 }
 

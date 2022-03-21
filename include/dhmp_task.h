@@ -12,6 +12,7 @@ struct dhmp_sge
 struct dhmp_task
 {
 	bool done_flag;
+	bool is_imm;
 	struct dhmp_sge sge;
 	struct dhmp_transport* rdma_trans;
 	struct dhmp_send_mr *smr;

@@ -557,7 +557,9 @@ mehcached_set_item(struct mehcached_item *item, uint64_t key_hash, const uint8_t
     // printf("value length is %lu\n", true_value_len);
     // HexDump((char*)key_data, (int) (key_length + value_length), (size_t)key_base);
     dump_value_by_addr((const uint8_t *)value_header, value_length);
+#ifdef LOG_DEBUG
     INFO_LOG("SET: keyhash \"%lx\" value addr is [%p]", key_hash, value_data);
+#endif
 }
 
 // 定长 update 操作会调用这个函数
@@ -616,7 +618,7 @@ mehcached_set_item_value(struct mehcached_item *item, const uint8_t *value, uint
         }
     }
     dump_value_by_addr( (const uint8_t *)value_header, value_length);
-    INFO_LOG("FIX length UPDTE node [%d]!", server_instance->server_id);
+    // INFO_LOG("FIX length UPDTE node [%d]!", server_instance->server_id);
 }
 
 static
@@ -1239,7 +1241,7 @@ mehcached_set(uint8_t current_alloc_id, struct mehcached_table *table, uint64_t 
                         if (is_main_table_latest(item, key_hash, key, key_length))
                         {
                             struct mehcached_item *log_item;
-                            INFO_LOG("**Main table has latest data, write to log table!**");
+                            // INFO_LOG("**Main table has latest data, write to log table!**");
                             mehcached_unlock_bucket(table, bucket);
                             log_item = mehcached_set(current_alloc_id, log_table, key_hash, key, \
                                                      key_length, value, value_length, expire_time, \
@@ -1299,7 +1301,9 @@ mehcached_set(uint8_t current_alloc_id, struct mehcached_table *table, uint64_t 
         return NULL;
     }
     struct mehcached_item *new_item = (struct mehcached_item *)mehcached_dynamic_item(&table->alloc, new_item_offset);
+    #ifdef LOG_DEBUG
     INFO_LOG("memcached_set mapping id is %u", table->alloc.mapping_id);
+    #endif
 #endif
 
     MEHCACHED_STAT_INC(table, set_new);
@@ -1577,11 +1581,11 @@ mehcached_table_init(struct mehcached_table *table, size_t num_buckets, size_t n
         }
         while (true)
         {
-            // table->buckets = mehcached_shm_find_free_address(shm_size);
-            // if (table->buckets == NULL)
-            //     Assert(false);
+            table->buckets = mehcached_shm_find_free_address(shm_size);
+            if (table->buckets == NULL)
+                Assert(false);
 
-            size_t mapping_id  = mehcached_shm_map(shm_id, table->buckets,(void**) &table->buckets, 0, shm_size, true);
+            size_t mapping_id  = mehcached_shm_map(shm_id, table->buckets, (void**) &table->buckets, 0, shm_size, true);
             if (mapping_id != (size_t) -1)
             {
                 table->mapping_id = mapping_id;
@@ -1780,7 +1784,8 @@ get_item_by_offset(struct mehcached_table *table, uint64_t item_offset)
     item = (struct mehcached_item *)mehcached_dynamic_item(&table->alloc, item_offset);
     value_length = MEHCACHED_VALUE_LENGTH(item->kv_length_vec);
     key_length = MEHCACHED_KEY_LENGTH(item->kv_length_vec);
-    INFO_LOG("item mapping_id is %d, value_length is %lu, key_length is %lu", item->mapping_id, value_length, key_length);
+
+    //INFO_LOG("item mapping_id is %d, value_length is %lu, key_length is %lu", item->mapping_id, value_length, key_length);
     return item;
 }
 
@@ -1958,7 +1963,7 @@ is_main_table_latest(struct mehcached_item * main_item, uint64_t key_hash, const
     {
         uint64_t *log_version = get_item_value_tail_version(log_item);
         uint64_t *main_version = get_item_value_tail_version(main_item);
-        INFO_LOG("**log_version is %d, main_version is %d", *log_version ,*main_version);
+        // INFO_LOG("**log_version is %d, main_version is %d", *log_version ,*main_version);
         // 最新的 version 永远保存在 main_version 中， 如果 main_version == log_version， 说明 logtable 里面的数据新
         // main_version > log_version 说明 maintable 更新
         // main_version 不可能小于 log_version
@@ -1966,7 +1971,9 @@ is_main_table_latest(struct mehcached_item * main_item, uint64_t key_hash, const
     }
     else
     {
+#ifdef LOG_DEBUG
         INFO_LOG("**log item is NULL");
+#endif
         return true;
     }
     // return log_item;

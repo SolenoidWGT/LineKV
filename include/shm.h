@@ -38,8 +38,7 @@ bool
 mehcached_shm_schedule_remove(size_t entry_id);
 
 size_t
-mehcached_shm_map(size_t entry_id, void *ptr, void ** bucket_ptr, 
-					size_t offset, size_t length, bool table_init MEHCACHED_UNUSED);
+mehcached_shm_map(size_t entry_id, void *ptr, void ** bucket_ptr,  size_t offset, size_t length, bool table_init MEHCACHED_UNUSED);
 
 bool
 mehcached_shm_unmap(void *ptr);

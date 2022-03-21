@@ -121,6 +121,12 @@ enum mica_send_info_type{
 
 	MICA_REPLICA_UPDATE_REQUEST,
 	MICA_REPLICA_UPDATE_RESPONSE,
+
+	MICA_SET_REQUEST_TEST,
+	MICA_SET_RESPONSE_TEST,
+
+	MICA_GET_P2P_MR_REQUEST,
+	MICA_GET_P2P_MR_RESPONSE,
 };
 
 enum middware_state{
@@ -255,7 +261,7 @@ struct dhmp_mica_set_response
 	// 如果是主节点则不需要用到下面的字段
 	uint64_t 	key_hash;
 	size_t 		key_length;
-	int partition_id;
+	int 		partition_id;
 	bool 		is_success;
 	uint8_t 	key_data[0];
 };
@@ -316,6 +322,7 @@ struct dhmp_write_request
 	void* local_addr;
 	size_t length;
 	uintptr_t remote_addr;
+	bool is_imm;
 };
 
 // 重点，更新操作的实现
@@ -422,8 +429,8 @@ void dump_value_by_addr(const uint8_t * value, size_t value_length);
 // TODO : 去掉 #define MICA_DEFAULT_VALUE_LEN (1024)
 // TODO : 边长 key 插入， header ,tail 元数据的迁移
 
-#define TABLE_POOL_SIZE 1024*1024*1024*1
-#define TABLE_BUCKET_NUMS 1024*1024
+#define TABLE_POOL_SIZE 4294967296
+#define TABLE_BUCKET_NUMS 1024*1024*4
 #define INIT_DHMP_CLIENT_BUFF_SIZE 1024*1024*8
 
 void 
@@ -444,5 +451,17 @@ typedef struct distrubute_job_thread_init_data
 
 extern int thread_num;
 extern int __test_size;
+#define MAX_CQ_NUMS 10
+
+void busy_wait_cq_handler(void* data);
+
+void init_busy_wait_rdma_buff(struct p2p_mappings * busy_wait_rdma_p2p[PARTITION_MAX_NUMS]);
+
+
+struct dhmp_mica_get_p2p_MR_info_RQ
+{
+	struct ibv_mr p2p_mr;
+	void *p2p_addr;
+};
 
 #endif

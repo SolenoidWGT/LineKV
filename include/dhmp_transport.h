@@ -2,8 +2,8 @@
 #define DHMP_TRANSPORT_H
 #include "dhmp_context.h"
 #include "dhmp_dev.h"
-
 #include "dhmp_task.h"
+#include "dhmp_mica_shm_common.h"
 
 #define ADDR_RESOLVE_TIMEOUT 500
 #define ROUTE_RESOLVE_TIMEOUT 500
@@ -20,10 +20,8 @@
 #define SINGLE_POLL_RECV_REGION (8*1024*1024)
 #define SINGLE_NORM_RECV_REGION (8*1024*1024)
 
-
-void dhmp_comp_channel_handler(int fd, void* data);
-void dhmp_wc_recv_handler(struct dhmp_transport* rdma_trans, struct dhmp_msg* msg, bool *is_async);
-
+void dhmp_wc_recv_handler(struct dhmp_transport* rdma_trans, struct dhmp_msg* msg, bool *is_async, __time_t time_start1, __syscall_slong_t time_start2);
+void dhmp_mica_set_request_handler(struct dhmp_transport* rdma_trans, struct post_datagram *req);
 
 enum dhmp_transport_state {
 	DHMP_TRANSPORT_STATE_INIT,
@@ -48,6 +46,7 @@ struct dhmp_cq{
 	
 	/*add the fd of comp_channel into the ctx*/
 	struct dhmp_context *ctx;
+	bool * stop_flag_ptr;
 };
 
 struct dhmp_mr{
@@ -83,9 +82,13 @@ struct dhmp_transport{
 	bool is_active;	// 如果为 true 表示该节点是主动与对方建立连接
 	struct rdma_conn_param  connect_params;		/* WGT */
 	enum middware_state trans_mid_state;		/* WGT: mark this trans is at which middware stage */
+	int cq_idx;		// wgt add
 
 	uint64_t send_mr_lock;
 	uint64_t recv_mr_lock;
+
+	struct p2p_mappings     * busy_wait_rdma_p2p[PARTITION_MAX_NUMS];
+
 	struct list_head client_entry;
 };
 
@@ -131,11 +134,12 @@ void dhmp_post_recv(struct dhmp_transport* rdma_trans, void *addr);
 int dhmp_rdma_read_after_write ( struct dhmp_transport* rdma_trans, struct dhmp_addr_info *addr_info, \
 				struct ibv_mr* mr, void* local_addr, int length);
 
-int dhmp_rdma_write ( struct dhmp_transport* rdma_trans,
-							struct ibv_mr* mr, 
-							void* local_addr, 
-							size_t length,
-							uintptr_t remote_addr);
+int dhmp_rdma_write (struct dhmp_transport* rdma_trans,
+						struct ibv_mr* mr, 
+						void* local_addr, 
+						size_t length,
+						uintptr_t remote_addr,
+						bool is_imm);
 
 int dhmp_rdma_read(struct dhmp_transport* rdma_trans, struct ibv_mr* mr, void* local_addr, int length, 
 						off_t offset);
@@ -154,8 +158,11 @@ int dhmp_rdma_write_mica_warpper (struct dhmp_transport* rdma_trans,
 						struct mehcached_item * item,
 						struct ibv_mr* mr, 
 						size_t length,
-						uintptr_t remote_addr);
+						void* remote_addr,
+						bool is_imm);
 
 int mica_clinet_connect_server(int buffer_size, int target_id);
+
+extern struct timespec start_set_g, end_set_g;
 #endif
 

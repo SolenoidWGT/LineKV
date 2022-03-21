@@ -61,7 +61,7 @@ micaserver_get_cliMR(struct replica_mappings  *resp_mapping_ptr, size_t target_i
 	DEFINE_STACK_TIMER();
 	MICA_TIME_COUNTER_INIT();
 	while(req_msg->done_flag == false)
-		MICA_TIME_LIMITED(0, 2*TIMEOUT_LIMIT_MS);
+		MICA_TIME_LIMITED(0, 20*TIMEOUT_LIMIT_MS);
 	MICA_TIME_COUNTER_CAL("micaserver_get_cliMR");
 
 out:
@@ -233,7 +233,7 @@ mica_set_remote(uint8_t current_alloc_id,  uint64_t key_hash, const uint8_t *key
 		MICA_TIME_COUNTER_INIT();
 		while(req_msg->done_flag == false)
 			MICA_TIME_LIMITED(tag, TIMEOUT_LIMIT_MS);
-		MICA_TIME_COUNTER_CAL("mica_set_remote");
+		//MICA_TIME_COUNTER_CAL("mica_set_remote");
 
 		if (req_data->is_success == false)
 		{
@@ -383,7 +383,9 @@ void
 mica_replica_update_notify(uint64_t item_offset, int partition_id, int tag)
 {
 	Assert(!IS_TAIL(server_instance->server_type));
+#ifdef LOG_DEBUG
 	INFO_LOG("mica_replica_update_notify offset is [%ld]", item_offset);
+#endif
 	void * base;
 	void * data_addr;
 	struct post_datagram *req_msg;
@@ -415,9 +417,9 @@ mica_replica_update_notify(uint64_t item_offset, int partition_id, int tag)
 	req_data->item_offset = item_offset;
 	req_data->partition_id = partition_id;
 	req_data->tag = tag;
-
+#ifdef LOG_DEBUG
 	WARN_LOG("[mica_replica_update_notify] send tag [%ld]", tag);
-
+#endif
 	if (!dhmp_post_send_info(target_id, base, total_length, NULL))
 	{
 		ERROR_LOG("Send failed!");
@@ -473,4 +475,9 @@ dhmp_post_send_info(size_t target_id, void * data, size_t length, struct dhmp_tr
 	dhmp_post_send(rdma_trans, &msg);
 out:
 	return true;
+}
+
+void busy_wait_rdmawrite_send()
+{
+	
 }

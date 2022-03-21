@@ -104,12 +104,6 @@ generate_test_data(size_t key_offset, size_t val_offset, size_t value_length, si
     return kvs_group;
 }
 
-static void
-free_test_date()
-{
-
-}
-
 	// size_t 	 out_value_length; 	// 返回值
 	// uint32_t out_expire_time;	// 返回值
 	// bool	 partial;			// 返回值
@@ -176,7 +170,7 @@ void dump_value_by_addr(const uint8_t * value, size_t value_length)
     tail_v = *(uint64_t*) (value + 2*sizeof(uint64_t) + GET_TRUE_VALUE_LEN(value_length));
     dirty = *(bool*)(value + 3*sizeof(uint64_t) + GET_TRUE_VALUE_LEN(value_length));
 
-    INFO_LOG("value header_v is %lu, value_count is %lu, tail_v is %lu, dirty is %d", header_v,value_count,tail_v, dirty);
+    // INFO_LOG("value header_v is %lu, value_count is %lu, tail_v is %lu, dirty is %d", header_v,value_count,tail_v, dirty);
 #ifdef DUMP_VALUE
     const uint8_t * value_base  = (value + 2 * sizeof(uint64_t));
     HexDump(value_base, (int)(GET_TRUE_VALUE_LEN(value_length)), (int) value_base);

@@ -27,13 +27,11 @@
 		<!-- <nvm_node>2</nvm_node> -->
 	</server>
 
-	<!-- node16 -->
 	<server id="1">
 		<nic_name>ib0</nic_name>
 		<addr>10.10.10.2</addr>
 		<port>31416</port>
 		<dram_node>0</dram_node>
-		<!-- <nvm_node>2</nvm_node> -->
 	</server>
 
 	<!-- node17 -->

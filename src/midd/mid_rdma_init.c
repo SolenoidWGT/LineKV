@@ -10,6 +10,8 @@
 #include "dhmp_dev.h"
 #include "dhmp_client.h"
 #include "dhmp_log.h"
+#include "dhmp_mica_shm_common.h"
+
 
 struct dhmp_server *server_instance=NULL;
 struct dhmp_client *client_mgr=NULL;
@@ -123,6 +125,9 @@ struct dhmp_client *  dhmp_client_init(size_t buffer_size, bool is_mica_cli)
 
 	client_mgr=(struct dhmp_client *)malloc(sizeof(struct dhmp_client));
 	memset(client_mgr, 0 , sizeof(struct dhmp_client));
+	// memset(client_mgr->ctx.stop_flag, true , sizeof(MAX_CQ_NUMS * sizeof(bool)));
+	for (i=0; i<MAX_CQ_NUMS; i++)
+		client_mgr->ctx.stop_flag[i] = true;
 
 	if(!client_mgr)
 	{
@@ -240,6 +245,10 @@ struct dhmp_server * dhmp_server_init(size_t server_id)
 		ERROR_LOG("allocate memory error.");
 		return NULL;
 	}
+	memset(server_instance, 0, sizeof(struct dhmp_server));
+	// memset(server_instance->ctx.stop_flag, true , sizeof(MAX_CQ_NUMS * sizeof(bool)));
+	for (i=0; i<MAX_CQ_NUMS; i++)
+		server_instance->ctx.stop_flag[i] = true;
 
 	dhmp_hash_init();
 	dhmp_config_init(&server_instance->config, false);
@@ -289,7 +298,6 @@ struct dhmp_server * dhmp_server_init(size_t server_id)
 			{
 				ERROR_LOG("Too few nodes to start system, at least node num is [3], now is [%d], exit!", \
 						server_instance->config.nets_cnt);
-				exit(0);
 			}
 
 			if (server_instance->server_id == 0)
@@ -374,4 +382,24 @@ void dhmp_server_destroy()
 	free(server_instance);
 }
 
-
+void init_busy_wait_rdma_buff(struct p2p_mappings * busy_wait_rdma_p2p[PARTITION_MAX_NUMS])
+{
+	int i;
+	struct dhmp_device * dev = dhmp_get_dev_from_server();
+	for (i=0 ;i<PARTITION_MAX_NUMS; i++)
+	{
+		busy_wait_rdma_p2p[i] = malloc(sizeof(struct replica_mappings));
+		busy_wait_rdma_p2p[i]->p2p_addr = malloc(INIT_DHMP_CLIENT_BUFF_SIZE);
+		busy_wait_rdma_p2p[i]->p2p_mr =ibv_reg_mr(dev->pd, busy_wait_rdma_p2p[i]->p2p_addr, INIT_DHMP_CLIENT_BUFF_SIZE, 
+													IBV_ACCESS_LOCAL_WRITE|
+													IBV_ACCESS_REMOTE_READ|
+													IBV_ACCESS_REMOTE_WRITE|
+													IBV_ACCESS_REMOTE_ATOMIC);
+		if(!busy_wait_rdma_p2p[i]->p2p_mr)	
+		{
+			ERROR_LOG("rdma register memory error. register mem length is [%u], error number is [%d], reason is \"%s\"", \
+								INIT_DHMP_CLIENT_BUFF_SIZE, errno, strerror(errno));
+			Assert(false);
+		}
+	}
+}

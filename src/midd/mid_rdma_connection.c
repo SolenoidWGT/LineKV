@@ -137,7 +137,7 @@ clean_rdmatrans:
 struct dhmp_cq* dhmp_cq_get(struct dhmp_device* device, struct dhmp_context* ctx)
 {
 	struct dhmp_cq* dcq;
-	int retval,flags=0;
+	int retval,flags=0, i;
 
 	dcq=(struct dhmp_cq*) calloc(1,sizeof(struct dhmp_cq));
 	if(!dcq)
@@ -156,7 +156,6 @@ struct dhmp_cq* dhmp_cq_get(struct dhmp_device* device, struct dhmp_context* ctx
 	flags=fcntl(dcq->comp_channel->fd, F_GETFL, 0);
 	if(flags!=-1)
 		flags=fcntl(dcq->comp_channel->fd, F_SETFL, flags|O_NONBLOCK);
-
 	if(flags==-1)
 	{
 		ERROR_LOG("set hcq comp channel fd nonblock error.");
@@ -164,15 +163,13 @@ struct dhmp_cq* dhmp_cq_get(struct dhmp_device* device, struct dhmp_context* ctx
 	}
 
 	dcq->ctx=ctx;
+	
+	/*
 	retval=dhmp_context_add_event_fd(dcq->ctx,
 									EPOLLIN,
 									dcq->comp_channel->fd,
 									dcq, dhmp_comp_channel_handler);
-	if(retval)
-	{
-		ERROR_LOG("context add comp channel fd error.");
-		goto cleanchannel;
-	}
+	*/
 
 	dcq->cq=ibv_create_cq(device->verbs, 100000, dcq, dcq->comp_channel, 0);
 	if(!dcq->cq)
@@ -189,6 +186,53 @@ struct dhmp_cq* dhmp_cq_get(struct dhmp_device* device, struct dhmp_context* ctx
 	}
 
 	dcq->device=device;
+
+	// 经过修改后有多个线程去轮询不同的cq
+	for (i=0 ;i<MAX_CQ_NUMS;i++){
+		if (ctx->stop_flag[i] == true)
+			break;
+	}
+
+	if (i == MAX_CQ_NUMS)
+	{
+		ERROR_LOG("MAX_CQ_NUMS");
+		exit(-1);
+	}
+
+	struct sched_param schedp;
+	pthread_attr_t attr;
+
+	pthread_attr_init(&attr);
+	memset(&schedp, 0, sizeof(schedp));
+
+	retval = pthread_attr_setinheritsched(&attr, PTHREAD_EXPLICIT_SCHED);
+	if (retval) {
+		printf("pthread_attr_setinheritsched:%d\n", retval);
+		return -1;
+	}
+
+	retval = pthread_attr_setschedpolicy(&attr, SCHED_RR);
+	if (retval) {
+		printf("pthread_attr_setschedpolicy:%d\n", retval);
+		return -1;
+	}
+
+	schedp.sched_priority = 99;
+	retval = pthread_attr_setschedparam(&attr, &schedp);
+	if (retval) {
+		printf("pthread_attr_setschedparam:%d\n", retval);
+		return -1;
+	}
+
+	ctx->stop_flag[i] = false;
+	dcq->stop_flag_ptr = &ctx->stop_flag[i];
+	retval=pthread_create(&ctx->busy_wait_cq_thread[i], NULL, busy_wait_cq_handler, (void*)dcq);
+	if(retval)
+	{
+		ERROR_LOG("context add comp channel fd error.");
+		goto cleanchannel;
+	}
+
 	return dcq;
 
 cleaneventfd:
@@ -255,10 +299,14 @@ static void dhmp_qp_release(struct dhmp_transport* rdma_trans)
 {
 	if(rdma_trans->qp)
 	{
+		// 终止 cq 轮询线程
+		*(rdma_trans->dcq->stop_flag_ptr) = true;
+
 		ibv_destroy_qp(rdma_trans->qp);
+		ibv_destroy_comp_channel(rdma_trans->dcq->comp_channel);
 		ibv_destroy_cq(rdma_trans->dcq->cq);
-		dhmp_context_del_event_fd(rdma_trans->ctx,
-								rdma_trans->dcq->comp_channel->fd);
+		// ibv_dealloc_pd(rdma_trans->dcq->device->pd);	// 加上会段错误
+		// dhmp_context_del_event_fd(rdma_trans->ctx, rdma_trans->dcq->comp_channel->fd);
 		free(rdma_trans->dcq);
 		rdma_trans->dcq=NULL;
 	}
@@ -554,7 +602,7 @@ static int on_cm_established(struct rdma_cm_event* event, struct dhmp_transport*
 static int on_cm_disconnected(struct rdma_cm_event* event, struct dhmp_transport* rdma_trans)
 {
 	ERROR_LOG("unexpected disconnect!");
-	Assert(false);
+	// exit(-1);
 	dhmp_destroy_source(rdma_trans);
 	rdma_trans->trans_state = DHMP_TRANSPORT_STATE_DISCONNECTED;
 	// 新增判断逻辑，分离server 和 client 的trans连接断开
@@ -578,6 +626,8 @@ static int on_cm_disconnected(struct rdma_cm_event* event, struct dhmp_transport
 
 static int on_cm_error(struct rdma_cm_event* event, struct dhmp_transport* rdma_trans)
 {
+	ERROR_LOG("unexpected disconnect!");
+	Assert(false);
 	dhmp_destroy_source(rdma_trans);
 	rdma_trans->trans_state=DHMP_TRANSPORT_STATE_ERROR;
 	if(server_instance!=NULL)
