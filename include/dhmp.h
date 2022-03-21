@@ -446,4 +446,7 @@ typedef struct distrubute_job_thread_init_data
 
 extern int thread_num;
 extern int __test_size;
+
+#define MAX_CQ_NUMS 10
+void busy_wait_cq_handler(void* data);
 #endif

@@ -24,10 +24,10 @@
 
 #include "midd_mica_benchmark.h"
 
-volatile bool replica_is_ready = true;
 bool ica_cli_get(struct test_kv *kv_entry, void *user_buff, size_t *out_value_length, size_t target_id, size_t tag);
 struct test_kv * kvs;
 int __test_size;
+int __access_num=0;
 int read_num, update_num;
 enum WORK_LOAD_DISTRIBUTED workload_type;
  
@@ -280,35 +280,35 @@ int main(int argc,char *argv[])
     Assert(TEST_KV_NUM < TABLE_BUCKET_NUMS);
     int i, reval;
     INFO_LOG("Server argc is [%d]", argc);
-    Assert(argc==6);
+    Assert(argc==7);
     for (i = 0; i<argc; i++)
 	{
         if (i==1)
         {
             CLINET_ID = (size_t)(*argv[i] - '0');
-            INFO_LOG("Server node_id is [%d]", CLINET_ID);
+            INFO_LOG(" node_id is [%d]", CLINET_ID);
         }
         else if (i==2)
         {
             __partition_nums = atoi(argv[i]);
             Assert(__partition_nums >0 && __partition_nums < PARTITION_MAX_NUMS);
-            INFO_LOG("Client __partition_nums is [%d]", __partition_nums);
+            INFO_LOG(" __partition_nums is [%d]", __partition_nums);
         }
         else if (i==3)
         {
             __test_size = atoi(argv[i]);
-            INFO_LOG("Server __test_size is [%d]", __test_size);
+            INFO_LOG(" __test_size is [%d]", __test_size);
         }
         else if (i==4)
         {
             if (strcmp(argv[i], "uniform") == 0)
             {
-                INFO_LOG("Server workload_type is [%s]", argv[i]);
+                INFO_LOG(" workload_type is [%s]", argv[i]);
                 workload_type=UNIFORM;
             }
             else if (strcmp(argv[i], "zipfian") == 0)
             {
-                INFO_LOG("Server workload_type is [%s]", argv[i]);
+                INFO_LOG(" workload_type is [%s]", argv[i]);
                 workload_type=ZIPFIAN;
             }
             else
@@ -319,27 +319,32 @@ int main(int argc,char *argv[])
         }
         else if (i==5)
         {
+            __access_num = atoi(argv[i]);
+            INFO_LOG(" __access_num is [%d]", __access_num);
+        }
+        else if (i==6)
+        {
             if(strcmp(argv[i], "1:1") == 0)
             {
-                INFO_LOG("Server RW_TATE is [%s]", argv[i]);
+                INFO_LOG(" RW_TATE is [%s]", argv[i]);
                 read_num = ACCESS_NUM /2;
                 update_num = ACCESS_NUM /2;
             }
             else if(strcmp(argv[i], "0:1") == 0)
             {
-                INFO_LOG("Server RW_TATE is [%s]", argv[i]);
+                INFO_LOG(" RW_TATE is [%s]", argv[i]);
                 read_num = 0;
                 update_num = ACCESS_NUM;
             }
             else if(strcmp(argv[i], "1:0") == 0)
             {
-                INFO_LOG("Server RW_TATE is [%s]", argv[i]);
+                INFO_LOG(" RW_TATE is [%s]", argv[i]);
                 read_num = ACCESS_NUM;
                 update_num = 0;
             }
             else if(strcmp(argv[i], "4:1") == 0)
             {
-                INFO_LOG("Server RW_TATE is [%s]", argv[i]);
+                INFO_LOG(" RW_TATE is [%s]", argv[i]);
                 read_num = (int)(0.8 * ACCESS_NUM);
                 update_num = (int)(0.2 * ACCESS_NUM);
             }

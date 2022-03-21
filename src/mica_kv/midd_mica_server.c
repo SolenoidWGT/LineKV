@@ -24,12 +24,6 @@ void* (*main_node_nic_thread_ptr) (void* );
 void* (*replica_node_nic_thread_ptr) (void* );
 void test_set(struct test_kv * kvs);
 
-#ifndef CRAQ
-volatile bool replica_is_ready = true;
-#else
-volatile bool replica_is_ready = true;
-#endif
-
 static size_t SERVER_ID= (size_t)-1;
 struct test_kv kvs_group[TEST_KV_NUM];
 static void free_test_date();

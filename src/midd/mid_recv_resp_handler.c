@@ -18,7 +18,7 @@
 
 
 #include "dhmp_top_api.h"
-
+volatile bool replica_is_ready = true;
 static uint64_t set_counts = 0, get_counts=0;
 long long int total_set_time = 0, total_get_time =0;
 static struct dhmp_msg * make_basic_msg(struct dhmp_msg * res_msg, struct post_datagram *resp, enum dhmp_msg_type type);
@@ -241,10 +241,12 @@ dhmp_node_id_response_handler(struct dhmp_transport* rdma_trans,
 
 	resp->req_ptr->done_flag = true;
 }
-
+#define MAIN_LOG_DEBUG
 void
 dhmp_mica_set_request_handler(struct dhmp_transport* rdma_trans, struct post_datagram *req)
 {
+	struct timespec start_g, end_g;
+	clock_gettime(CLOCK_MONOTONIC, &start_g);	
 	struct post_datagram *resp;
 	struct dhmp_mica_set_request  * req_info;
 	struct dhmp_mica_set_response * set_result;
@@ -406,6 +408,14 @@ dhmp_mica_set_request_handler(struct dhmp_transport* rdma_trans, struct post_dat
 			MICA_TIME_LIMITED(req_info->tag, TIMEOUT_LIMIT_MS);
 		MICA_TIME_COUNTER_CAL("Tag set downstream");
 	}
+
+	clock_gettime(CLOCK_MONOTONIC, &end_g);	
+#ifdef MAIN_LOG_DEBUG
+	if (set_counts >=100)
+		total_set_time += ((((end_g.tv_sec * 1000000000) + end_g.tv_nsec) - ((start_g.tv_sec * 1000000000) + start_g.tv_nsec)));
+	if (server_instance->server_id == 0 && set_counts>200)
+		ERROR_LOG("[dhmp_mica_set_request_handler] count[%d] avg time is [%lld]us", set_counts, total_set_time / (US_BASE*(set_counts-100)));
+#endif
 
 	// 先向 主节点/ 客户端 发送回复，节约一次 RTT 的时间
 	resp_msg_ptr = make_basic_msg(&resp_msg, resp, DHMP_MICA_SEND_INFO_RESPONSE);
@@ -778,14 +788,15 @@ static void __dhmp_send_request_handler(struct dhmp_transport* rdma_trans,
 		case MICA_SET_REQUEST:
 			INFO_LOG ( "Recv [MICA_SET_REQUEST] from node [%d]",  req->node_id);
 			set_counts++;	// 有并发问题，这个值只是为了debug
-			clock_gettime(CLOCK_MONOTONIC, &start);	
+			// clock_gettime(CLOCK_MONOTONIC, &start);	
 			// resp = dhmp_mica_set_request_handler(req);
 			dhmp_mica_set_request_handler(rdma_trans, req);
-			clock_gettime(CLOCK_MONOTONIC, &end);	
-			total_set_time += (((end.tv_sec * 1000000000) + end.tv_nsec) - ((start.tv_sec * 1000000000) + start.tv_nsec));
-			if (server_instance->server_id == 0 && set_counts==1024)
-				WARN_LOG("[dhmp_mica_set_request_handler] count[%d] avg time is [%lld]us", set_counts, total_set_time / (US_BASE*set_counts));
-			return ;
+			// clock_gettime(CLOCK_MONOTONIC, &end);	
+			// total_set_time += (((end.tv_sec * 1000000000) + end.tv_nsec) - ((start.tv_sec * 1000000000) + start.tv_nsec));
+			// if (server_instance->server_id == 0 && set_counts==1024)
+			// 	WARN_LOG("[dhmp_mica_set_request_handler] count[%d] avg time is [%lld]us", set_counts, total_set_time / (US_BASE*set_counts));
+			// return ;
+			return;
 		case MICA_GET_REQUEST:
 			INFO_LOG ( "Recv [MICA_GET_REQUEST] from node [%d]",  req->node_id);
 			get_counts++;	// 有并发问题，这个值只是为了debug
@@ -1144,27 +1155,47 @@ void distribute_partition_resp(int partition_id, struct dhmp_transport* rdma_tra
 	DEFINE_STACK_TIMER();
 	MICA_TIME_COUNTER_INIT();
 
-	while(true)
+	if (__partition_nums == 1)
 	{
-		partition_lock(lock);
-		// 必须要等待下游线程处理完buffer中的消息后才能放置新的消息
-		// memory_barrier();
-		if(mgr->buff_msg_data[partition_id].set_tag == '1')
-			partition_unlock(lock);
-		else
-			break;
-	}
-	memory_barrier();
-	mgr->buff_msg_data[partition_id].msg = msg;
-	mgr->buff_msg_data[partition_id].rdma_trans = rdma_trans;
-	mgr->buff_msg_data[partition_id].resp_type = req->info_type;
-	// 最后设置标记位
-	memory_barrier();
-	mgr->buff_msg_data[partition_id].set_tag = (volatile char)'1';
+		// 执行分区的操作
+		// __dhmp_send_request_handler(trans_msg.rdma_trans, trans_msg.msg);
+		__dhmp_wc_recv_handler(rdma_trans, msg);
+		//MICA_TIME_COUNTER_CAL("__dhmp_wc_recv_handler!");
 
-	partition_unlock(lock);
-	MICA_TIME_COUNTER_CAL("distribute_partition_resp");
-	INFO_LOG("distribute msg [%d]!", partition_id);
+		// 回收发送缓冲区
+		// 发送双边操作的数据大小不能超过  SINGLE_NORM_RECV_REGION （16MB）
+		dhmp_post_recv(rdma_trans, msg->data - sizeof(enum dhmp_msg_type) - sizeof(size_t));
+
+		//MICA_TIME_COUNTER_CAL("dhmp_post_recv!");
+
+		// #define container_of(ptr, type, member)
+		// 防止 msg 内存泄漏
+		free(container_of(&(msg->data), struct dhmp_msg , data));
+	}
+	else
+	{
+		while(true)
+		{
+			partition_lock(lock);
+			// 必须要等待下游线程处理完buffer中的消息后才能放置新的消息
+			// memory_barrier();
+			if(mgr->buff_msg_data[partition_id].set_tag == '1')
+				partition_unlock(lock);
+			else
+				break;
+		}
+		memory_barrier();
+		mgr->buff_msg_data[partition_id].msg = msg;
+		mgr->buff_msg_data[partition_id].rdma_trans = rdma_trans;
+		mgr->buff_msg_data[partition_id].resp_type = req->info_type;
+		// 最后设置标记位
+		memory_barrier();
+		mgr->buff_msg_data[partition_id].set_tag = (volatile char)'1';
+
+		partition_unlock(lock);
+		MICA_TIME_COUNTER_CAL("distribute_partition_resp");
+		INFO_LOG("distribute msg [%d]!", partition_id);
+	}
 }
 
 void* mica_work_thread(void *data)

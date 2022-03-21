@@ -123,6 +123,8 @@ struct dhmp_client *  dhmp_client_init(size_t buffer_size, bool is_mica_cli)
 
 	client_mgr=(struct dhmp_client *)malloc(sizeof(struct dhmp_client));
 	memset(client_mgr, 0 , sizeof(struct dhmp_client));
+	for (i=0; i<MAX_CQ_NUMS; i++)
+		client_mgr->ctx.stop_flag[i] = true;
 
 	if(!client_mgr)
 	{
@@ -245,6 +247,9 @@ struct dhmp_server * dhmp_server_init(size_t server_id)
 		ERROR_LOG("allocate memory error.");
 		return NULL;
 	}
+
+	for (i=0; i<MAX_CQ_NUMS; i++)
+		server_instance->ctx.stop_flag[i] = true;
 
 	dhmp_hash_init();
 	dhmp_config_init(&server_instance->config, false);
