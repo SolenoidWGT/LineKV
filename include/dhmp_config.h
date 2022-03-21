@@ -50,10 +50,13 @@ struct dhmp_config{
  *	analyse the client configuration include log level 
  *	and the servers configuration 
  */
-int dhmp_config_init(struct dhmp_config *config_ptr, bool is_client);
-extern void dhmp_set_curnode_id ( struct dhmp_config* config_ptr);
+
+int dhmp_config_init ( struct dhmp_config* config_ptr, bool is_client);
+extern void dhmp_set_curnode_id ( struct dhmp_config* config_ptr, bool is_ubuntu);
 #define MAX_PORT_NUMS 10
 extern int used_id[MAX_PORT_NUMS];
 extern int used_nums ;
+
+extern bool is_ubuntu;
 #endif
 

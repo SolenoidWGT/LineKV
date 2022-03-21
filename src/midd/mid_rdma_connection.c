@@ -533,12 +533,6 @@ static int on_cm_connect_request(struct rdma_cm_event* event,
 		goto out;
 	}
 
-	// 新增当前server的客户端连接数目
-	pthread_mutex_lock(&server_instance->mutex_client_list);
-	++server_instance->cur_connections;
-	list_add_tail(&new_trans->client_entry, &server_instance->client_list);
-	pthread_mutex_unlock(&server_instance->mutex_client_list);
-
 	if(normal_trans)
 	{
 		normal_trans->link_trans=new_trans;
@@ -560,6 +554,13 @@ static int on_cm_connect_request(struct rdma_cm_event* event,
 	
 	new_trans->trans_state=DHMP_TRANSPORT_STATE_CONNECTING;
 	dhmp_post_all_recv(new_trans);
+
+	// 新增当前server的客户端连接数目
+	pthread_mutex_lock(&server_instance->mutex_client_list);
+	++server_instance->cur_connections;
+	list_add_tail(&new_trans->client_entry, &server_instance->client_list);
+	pthread_mutex_unlock(&server_instance->mutex_client_list);
+
 	return retval;
 
 out:
@@ -602,7 +603,7 @@ static int on_cm_established(struct rdma_cm_event* event, struct dhmp_transport*
 static int on_cm_disconnected(struct rdma_cm_event* event, struct dhmp_transport* rdma_trans)
 {
 	ERROR_LOG("unexpected disconnect!");
-	// exit(-1);
+	exit(-1);
 	dhmp_destroy_source(rdma_trans);
 	rdma_trans->trans_state = DHMP_TRANSPORT_STATE_DISCONNECTED;
 	// 新增判断逻辑，分离server 和 client 的trans连接断开

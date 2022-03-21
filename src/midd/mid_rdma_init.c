@@ -325,7 +325,7 @@ struct dhmp_server * dhmp_server_init(size_t server_id)
 		else
 		{
 			used_id[used_nums++] = server_instance->config.curnet_id;
-			dhmp_set_curnode_id ( &server_instance->config );
+			dhmp_set_curnode_id ( &server_instance->config, is_ubuntu);
 		}
 	}
 

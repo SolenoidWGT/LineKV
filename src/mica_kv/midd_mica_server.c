@@ -41,7 +41,7 @@ int main(int argc,char *argv[])
     const size_t num_pages_to_reserve = 16384 - 2048;   // give 2048 pages to dpdk
     
     INFO_LOG("Server argc is [%d]", argc);
-    Assert(argc==3);
+    Assert(argc==4);
     for (i = 0; i<argc; i++)
 	{
         if (i==1)
@@ -54,6 +54,11 @@ int main(int argc,char *argv[])
             __partition_nums = atoi(argv[i]);
             Assert(__partition_nums >0 && __partition_nums < PARTITION_MAX_NUMS);
             INFO_LOG("Server __partition_nums is [%d]", __partition_nums);
+        }
+        else if (i==3)
+        {
+            is_ubuntu = atoi(argv[i]);
+            INFO_LOG("Server is_ubuntu is [%d]", is_ubuntu);
         }
 	}
 
@@ -239,7 +244,8 @@ int main(int argc,char *argv[])
             expected_connections = 1;  // 链表中的头节点只需要被动接受主节点的连接
         else
             expected_connections = 2;  // 非头节点需要被动接受主节点和上游节点的连接
-
+        
+        INFO_LOG("wait mica_ask_nodeID_req");
         while (true)
         {
             pthread_mutex_lock(&server_instance->mutex_client_list);

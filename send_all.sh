@@ -9,3 +9,6 @@
 ### 
 scp -r ../LineKV  gtwang@node20:/home/gtwang/
 scp -r ../LineKV  gtwang@node22:/home/gtwang/
+
+scp  ./config.xml gtwang@node24:/home/gtwang/LineKV/config.xml
+scp  ./bin/mica  gtwang@node24:/home/gtwang/LineKV

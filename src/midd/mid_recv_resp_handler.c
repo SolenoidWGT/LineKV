@@ -17,11 +17,18 @@
 #include "nic.h"
 
 #include "dhmp_top_api.h"
+
+//#define MAIN_LOG_DEBUG_LATENCE
+#define MAIN_LOG_DEBUG_THROUGHOUT 
+struct timespec start_through, end_through;
+
 volatile bool replica_is_ready = false;
 
 struct timespec start_set_g, end_set_g;
 static uint64_t set_counts = 0, get_counts=0;
 long long int total_set_time = 0, total_get_time =0;
+long long int total_set_latency_time = 0, total_set_through_time=0;
+
 static struct dhmp_msg * make_basic_msg(struct dhmp_msg * res_msg, struct post_datagram *resp);
 
 struct mica_work_context * mica_work_context_mgr[2];
@@ -560,6 +567,18 @@ static void __dhmp_send_request_handler(struct dhmp_transport* rdma_trans,
 	// else
 	// 	dev = dhmp_get_dev_from_server();
 
+#ifdef MAIN_LOG_DEBUG_THROUGHOUT
+	if (set_counts == 100)
+		clock_gettime(CLOCK_MONOTONIC, &start_through);
+
+	if (set_counts == 1100)
+	{
+		clock_gettime(CLOCK_MONOTONIC, &end_through);
+		total_set_through_time = ((((end_through.tv_sec * 1000000000) + end_through.tv_nsec) - ((start_through.tv_sec * 1000000000) + start_through.tv_nsec)));
+		ERROR_LOG("[dhmp_mica_set_request_handler] count[%d] through_out time is [%lld] us", 1000, total_set_through_time /1000);
+	}
+#endif
+
 	switch (req->info_type)
 	{
 		case MICA_ACK_REQUEST:
@@ -667,20 +686,21 @@ dhmp_send_respone_handler(struct dhmp_transport* rdma_trans, struct dhmp_msg* ms
 		case MICA_GET_CLIMR_RESPONSE:
 		case MICA_SERVER_GET_CLINET_NODE_ID_RESPONSE:
 		case MICA_REPLICA_UPDATE_RESPONSE:
+
+		case MICA_GET_RESPONSE:
+		case MICA_SET_RESPONSE:
+		case MICA_SET_RESPONSE_TEST:
 			// 非分区的操作就在主线程执行（可能的性能问题，也许需要一个专门的线程负责处理非分区的操作，但是非分区操作一般是初始化操作，对后续性能影响不明显）
 			__dhmp_send_respone_handler(rdma_trans, msg);
 			*is_async = false;
 			break;
 
-		case MICA_GET_RESPONSE:
-		case MICA_SET_RESPONSE:
-		case MICA_SET_RESPONSE_TEST:
-			// 分区的操作需要分布到特定的线程去执行
-			clock_gettime(CLOCK_MONOTONIC, &end);
-			//INFO_LOG("RESP Distribute [%ld] ns", (((end.tv_sec * 1000000000) + end.tv_nsec) - ((time_start1 * 1000000000) + time_start2)));
-			distribute_partition_resp(get_resp_partition_id(req), rdma_trans, msg, DHMP_MICA_SEND_INFO_RESPONSE, end.tv_sec ,end.tv_nsec);
-			*is_async = true;
-			break;
+			// // 分区的操作需要分布到特定的线程去执行
+			// clock_gettime(CLOCK_MONOTONIC, &end);
+			// //INFO_LOG("RESP Distribute [%ld] ns", (((end.tv_sec * 1000000000) + end.tv_nsec) - ((time_start1 * 1000000000) + time_start2)));
+			// distribute_partition_resp(get_resp_partition_id(req), rdma_trans, msg, DHMP_MICA_SEND_INFO_RESPONSE, end.tv_sec ,end.tv_nsec);
+			// *is_async = true;
+			// break;
 		default:
 			ERROR_LOG("Unknown request info_type %d", req->info_type);
 			Assert(0);
@@ -962,7 +982,7 @@ int init_mulit_server_work_thread()
 	memset(mica_work_context_mgr[0], 0, sizeof(struct mica_work_context));
 	memset(mica_work_context_mgr[1], 0, sizeof(struct mica_work_context));
 
-	for (j=DHMP_MICA_SEND_INFO_REQUEST; j<=DHMP_MICA_SEND_INFO_RESPONSE; j++)
+	for (j=DHMP_MICA_SEND_INFO_REQUEST; j<=DHMP_MICA_SEND_INFO_REQUEST; j++)
 	{
 		for (i=0; i<PARTITION_NUMS; i++)
 		{
@@ -1318,11 +1338,11 @@ dhmp_mica_main_replica_set_request_handler(struct dhmp_transport* rdma_trans, st
 	}
 	clock_gettime(CLOCK_MONOTONIC, &end_g);	
 
-#ifdef MAIN_LOG_DEBUG
+#ifdef MAIN_LOG_DEBUG_LATENCE
 	if (set_counts >=100)
-		total_set_time += ((((end_g.tv_sec * 1000000000) + end_g.tv_nsec) - ((start_g.tv_sec * 1000000000) + start_g.tv_nsec)));
+		total_set_latency_time += ((((end_g.tv_sec * 1000000000) + end_g.tv_nsec) - ((start_g.tv_sec * 1000000000) + start_g.tv_nsec)));
 	if (server_instance->server_id == 0 && set_counts>200)
-		ERROR_LOG("[dhmp_mica_set_request_handler] count[%d] avg time is [%lld]us", set_counts, total_set_time / (US_BASE*(set_counts-100)));
+		ERROR_LOG("[dhmp_mica_set_request_handler] count[%d] avg time is [%lld]us", set_counts, total_set_latency_time / (US_BASE*(set_counts-100)));
 #endif
 
 	// 拷贝 key 和 key 的长度,用于链中节点向上游节点发送消息
