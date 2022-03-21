@@ -23,7 +23,6 @@ void* (*main_node_nic_thread_ptr) (void* );
 void* (*replica_node_nic_thread_ptr) (void* );
 void test_set(struct test_kv * kvs);
 
-volatile bool replica_is_ready = false;
 static size_t SERVER_ID= (size_t)-1;
 bool is_single_thread;
 int test_size;

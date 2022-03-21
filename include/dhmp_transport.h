@@ -21,7 +21,6 @@
 #define SINGLE_NORM_RECV_REGION (8*1024*1024)
 
 
-void dhmp_comp_channel_handler(int fd, void* data);
 void dhmp_wc_recv_handler(struct dhmp_transport* rdma_trans, struct dhmp_msg* msg, bool *is_async);
 
 
@@ -45,9 +44,10 @@ struct dhmp_cq{
 	struct ibv_cq	*cq;
 	struct ibv_comp_channel	*comp_channel;
 	struct dhmp_device *device;
-	
+
 	/*add the fd of comp_channel into the ctx*/
 	struct dhmp_context *ctx;
+	bool * stop_flag_ptr;
 };
 
 struct dhmp_mr{

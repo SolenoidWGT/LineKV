@@ -84,7 +84,7 @@ static void dhmp_wc_error_handler(struct ibv_wc* wc)
 {
 	if(wc->status==IBV_WC_WR_FLUSH_ERR)
 	{
-		INFO_LOG("work request flush, retry.....");
+		// INFO_LOG("work request flush, retry.....");
 	}
 	else
 	{
@@ -100,34 +100,50 @@ static void dhmp_wc_error_handler(struct ibv_wc* wc)
  *  note:set the following function to the cq handle work completion
  *  epoll回调函数入口
  */
-void dhmp_comp_channel_handler(int fd, void* data)
+void dhmp_comp_channel_handler(struct dhmp_cq* dcq)
 {
-	struct dhmp_cq* dcq =(struct dhmp_cq*) data;
+	// struct dhmp_cq* dcq =(struct dhmp_cq*) data;
 	struct ibv_cq* cq;
 	void* cq_ctx;
 	struct ibv_wc wc;
 	int err=0;
 
-	err=ibv_get_cq_event(dcq->comp_channel, &cq, &cq_ctx);
-	if(err)
+	while(true)
 	{
-		ERROR_LOG("ibv get cq event error.");
-		return ;
-	}
+		if (*dcq->stop_flag_ptr == true)
+		{
+			INFO_LOG("dhmp_comp_channel_handler thread exit!");
+			pthread_exit(0);
+		}
 
-	ibv_ack_cq_events(dcq->cq, 1);
-	err=ibv_req_notify_cq(dcq->cq, 0);
-	if(err)
-	{
-		ERROR_LOG("ibv req notify cq error.");
-		return ;
-	}
+		// //while(ibv_get_cq_event(dcq->comp_channel, &cq, &cq_ctx));
+		// err=ibv_get_cq_event(dcq->comp_channel, &cq, &cq_ctx);
+		// if(err)
+		// {
+		// 	//ERROR_LOG("ibv get cq event error.");
+		// 	continue;
+		// }
 
-	while(ibv_poll_cq(dcq->cq, 1, &wc))
-	{
-		if(wc.status==IBV_WC_SUCCESS)
-			dhmp_wc_success_handler(&wc);
-		else
-			dhmp_wc_error_handler(&wc);
+		// ibv_ack_cq_events(dcq->cq, 1);
+		// err=ibv_req_notify_cq(dcq->cq, 0);
+		// if(err)
+		// {
+		// 	//ERROR_LOG("ibv req notify cq error.");
+		// 	continue;
+		// }
+
+		while(ibv_poll_cq(dcq->cq, 1, &wc))
+		{
+			if(wc.status==IBV_WC_SUCCESS)
+				dhmp_wc_success_handler(&wc);
+			else
+				dhmp_wc_error_handler(&wc);
+		}
 	}
+}
+
+void busy_wait_cq_handler(void* data)
+{
+	struct dhmp_cq* dcq = (struct dhmp_cq* )data;
+	dhmp_comp_channel_handler(dcq);
 }

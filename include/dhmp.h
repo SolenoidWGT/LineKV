@@ -450,4 +450,8 @@ typedef struct distrubute_job_thread_init_data
 extern bool is_single_thread;
 extern int test_size;
 #define STAR
+
+#define MAX_CQ_NUMS 10
+void busy_wait_cq_handler(void* data);
+
 #endif
