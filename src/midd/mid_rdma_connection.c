@@ -199,30 +199,30 @@ struct dhmp_cq* dhmp_cq_get(struct dhmp_device* device, struct dhmp_context* ctx
 		exit(-1);
 	}
 
-	struct sched_param schedp;
-	pthread_attr_t attr;
+	// struct sched_param schedp;
+	// pthread_attr_t attr;
 
-	pthread_attr_init(&attr);
-	memset(&schedp, 0, sizeof(schedp));
+	// pthread_attr_init(&attr);
+	// memset(&schedp, 0, sizeof(schedp));
 
-	retval = pthread_attr_setinheritsched(&attr, PTHREAD_EXPLICIT_SCHED);
-	if (retval) {
-		printf("pthread_attr_setinheritsched:%d\n", retval);
-		return -1;
-	}
+	// retval = pthread_attr_setinheritsched(&attr, PTHREAD_EXPLICIT_SCHED);
+	// if (retval) {
+	// 	printf("pthread_attr_setinheritsched:%d\n", retval);
+	// 	return -1;
+	// }
 
-	retval = pthread_attr_setschedpolicy(&attr, SCHED_RR);
-	if (retval) {
-		printf("pthread_attr_setschedpolicy:%d\n", retval);
-		return -1;
-	}
+	// retval = pthread_attr_setschedpolicy(&attr, SCHED_RR);
+	// if (retval) {
+	// 	printf("pthread_attr_setschedpolicy:%d\n", retval);
+	// 	return -1;
+	// }
 
-	schedp.sched_priority = 99;
-	retval = pthread_attr_setschedparam(&attr, &schedp);
-	if (retval) {
-		printf("pthread_attr_setschedparam:%d\n", retval);
-		return -1;
-	}
+	// schedp.sched_priority = 99;
+	// retval = pthread_attr_setschedparam(&attr, &schedp);
+	// if (retval) {
+	// 	printf("pthread_attr_setschedparam:%d\n", retval);
+	// 	return -1;
+	// }
 
 	ctx->stop_flag[i] = false;
 	dcq->stop_flag_ptr = &ctx->stop_flag[i];
@@ -353,6 +353,7 @@ struct dhmp_transport* dhmp_transport_create(struct dhmp_context* ctx,
 													bool is_poll_qp,
 													int peer_node_id)
 {
+	int i;
 	struct dhmp_transport *rdma_trans;
 	int err=0;
 	rdma_trans=(struct dhmp_transport*)malloc(sizeof(struct dhmp_transport));
@@ -394,25 +395,31 @@ struct dhmp_transport* dhmp_transport_create(struct dhmp_context* ctx,
 
 	if(!is_listen)
 	{
-		err=dhmp_memory_register(dev->pd,
-								&rdma_trans->send_mr,
-								SEND_REGION_SIZE);
-		if(err)
-			goto out_event_channel;
+		for (i=0; i<PARTITION_NUMS+1; i++)
+		{
+			err=dhmp_memory_register(dev->pd,
+									&(rdma_trans->send_mr[i]),
+									SEND_REGION_SIZE);
+			if(err)
+				goto out_event_channel;
 
-		err=dhmp_memory_register(dev->pd,
-								&rdma_trans->recv_mr,
-								RECV_REGION_SIZE);
-		if(err)
-			goto out_send_mr;
-		
+			err=dhmp_memory_register(dev->pd,
+									&(rdma_trans->recv_mr[i]),
+									RECV_REGION_SIZE);
+			if(err)
+				goto out_send_mr;
+		}
+
 		rdma_trans->is_poll_qp=is_poll_qp;
 	}
-	
+
 	return rdma_trans;
 out_send_mr:
-	ibv_dereg_mr(rdma_trans->send_mr.mr);
-	free(rdma_trans->send_mr.addr);
+	for (i=0; i<PARTITION_NUMS+1; i++)
+	{
+		ibv_dereg_mr(rdma_trans->send_mr[i].mr);
+		free(rdma_trans->send_mr[i].addr);
+	}
 	
 out_event_channel:
 	dhmp_context_del_event_fd(rdma_trans->ctx, rdma_trans->event_channel->fd);
@@ -428,18 +435,21 @@ out:
  */
 static void dhmp_destroy_source(struct dhmp_transport* rdma_trans)
 {
-	if(rdma_trans->send_mr.addr)
+	int i;
+	for (i=0; i<PARTITION_NUMS+1; i++)
 	{
-		ibv_dereg_mr(rdma_trans->send_mr.mr);
-		free(rdma_trans->send_mr.addr);
-	}
+		if(rdma_trans->send_mr[i].addr)
+		{
+			ibv_dereg_mr(rdma_trans->send_mr[i].mr);
+			free(rdma_trans->send_mr[i].addr);
+		}
 
-	if(rdma_trans->recv_mr.addr)
-	{
-		ibv_dereg_mr(rdma_trans->recv_mr.mr);
-		free(rdma_trans->recv_mr.addr);
+		if(rdma_trans->recv_mr[i].addr)
+		{
+			ibv_dereg_mr(rdma_trans->recv_mr[i].mr);
+			free(rdma_trans->recv_mr[i].addr);
+		}
 	}
-	
 	rdma_destroy_qp(rdma_trans->cm_id);
 	dhmp_context_del_event_fd(rdma_trans->ctx, rdma_trans->dcq->comp_channel->fd);
 	dhmp_context_del_event_fd(rdma_trans->ctx, rdma_trans->event_channel->fd);
@@ -533,12 +543,6 @@ static int on_cm_connect_request(struct rdma_cm_event* event,
 		goto out;
 	}
 
-	// 新增当前server的客户端连接数目
-	pthread_mutex_lock(&server_instance->mutex_client_list);
-	++server_instance->cur_connections;
-	list_add_tail(&new_trans->client_entry, &server_instance->client_list);
-	pthread_mutex_unlock(&server_instance->mutex_client_list);
-
 	if(normal_trans)
 	{
 		normal_trans->link_trans=new_trans;
@@ -560,6 +564,13 @@ static int on_cm_connect_request(struct rdma_cm_event* event,
 	
 	new_trans->trans_state=DHMP_TRANSPORT_STATE_CONNECTING;
 	dhmp_post_all_recv(new_trans);
+
+	// 新增当前server的客户端连接数目
+	pthread_mutex_lock(&server_instance->mutex_client_list);
+	++server_instance->cur_connections;
+	list_add_tail(&new_trans->client_entry, &server_instance->client_list);
+	pthread_mutex_unlock(&server_instance->mutex_client_list);
+
 	return retval;
 
 out:
@@ -601,8 +612,8 @@ static int on_cm_established(struct rdma_cm_event* event, struct dhmp_transport*
 
 static int on_cm_disconnected(struct rdma_cm_event* event, struct dhmp_transport* rdma_trans)
 {
-		ERROR_LOG("unexpected disconnect!");
-	Assert(false);
+	ERROR_LOG("unexpected disconnect!");
+	exit(-1);
 	dhmp_destroy_source(rdma_trans);
 	rdma_trans->trans_state = DHMP_TRANSPORT_STATE_DISCONNECTED;
 	// 新增判断逻辑，分离server 和 client 的trans连接断开
@@ -667,15 +678,21 @@ int free_trans(struct dhmp_transport* rdma_trans)
 		仍然发生内存泄漏的地方： dhmp_context_add_event_fd (dhmp_context.c:71)
 		
 	*/
+	int i;
 	int node_id = rdma_trans->node_id;
 
 	// undo dhmp_transport_create
 	// undo dhmp_memory_register
-	ibv_dereg_mr(rdma_trans->send_mr.mr);
-	ibv_dereg_mr(rdma_trans->recv_mr.mr);
-	if(rdma_trans->send_mr.addr)
-		free(rdma_trans->send_mr.addr);
+	for (i=0; i<PARTITION_NUMS+1; i++)
+	{
+		ibv_dereg_mr(rdma_trans->send_mr[i].mr);
+		if(rdma_trans->send_mr[i].addr)
+			free(rdma_trans->send_mr[i].addr);
 
+		ibv_dereg_mr(rdma_trans->recv_mr[i].mr);
+		if (rdma_trans->recv_mr[i].addr)
+			free(rdma_trans->recv_mr[i].addr);
+	}
 	// undo on_cm_route_resolved
 	dhmp_qp_release(rdma_trans);
 
@@ -845,7 +862,7 @@ struct dhmp_transport*
 find_connect_client_by_nodeID(int node_id)
 {
 	struct dhmp_transport *rdma_trans=NULL, * re_trans = NULL;
-	pthread_mutex_lock(&server_instance->mutex_client_list);
+	//pthread_mutex_lock(&server_instance->mutex_client_list);
 	list_for_each_entry(rdma_trans, &server_instance->client_list, client_entry)
 	{
 		if (rdma_trans->node_id == node_id)
@@ -854,7 +871,7 @@ find_connect_client_by_nodeID(int node_id)
 			break;
 		}
 	}
-	pthread_mutex_unlock(&server_instance->mutex_client_list);
+	//pthread_mutex_unlock(&server_instance->mutex_client_list);
 	return re_trans;
 }
 

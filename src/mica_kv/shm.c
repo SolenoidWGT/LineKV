@@ -311,29 +311,25 @@ mehcached_shm_map(size_t entry_id, void *ptr, void ** bucket_ptr,
 	}
 
 #ifdef USE_RDMA
-	#ifndef CRAQ
-	if (!IS_MAIN(server_instance->server_type) /* && table_init == false*/)
-	#else
-	if (!IS_HEAD(server_instance->server_type))
-	#endif
-	{
-		struct dhmp_device * dev = dhmp_get_dev_from_server();
-		struct ibv_mr * mr=ibv_reg_mr(dev->pd, p, total_alloc_pages, 
-										IBV_ACCESS_LOCAL_WRITE|
-										IBV_ACCESS_REMOTE_READ|
-										IBV_ACCESS_REMOTE_WRITE|
-										IBV_ACCESS_REMOTE_ATOMIC);
-		if(!mr)	
-		{
-			ERROR_LOG("rdma register memory error. register mem length is [%u], error number is [%d], reason is \"%s\"", \
-								total_alloc_pages, errno, strerror(errno));
-			mehcached_shm_unlock();
-			Assert(false);
-		}
+	// if (!IS_HEAD(server_instance->server_type))
+	// {
+	// 	struct dhmp_device * dev = dhmp_get_dev_from_server();
+	// 	struct ibv_mr * mr=ibv_reg_mr(dev->pd, p, total_alloc_pages, 
+	// 									IBV_ACCESS_LOCAL_WRITE|
+	// 									IBV_ACCESS_REMOTE_READ|
+	// 									IBV_ACCESS_REMOTE_WRITE|
+	// 									IBV_ACCESS_REMOTE_ATOMIC);
+	// 	if(!mr)	
+	// 	{
+	// 		ERROR_LOG("rdma register memory error. register mem length is [%u], error number is [%d], reason is \"%s\"", 
+	// 							total_alloc_pages, errno, strerror(errno));
+	// 		mehcached_shm_unlock();
+	// 		Assert(false);
+	// 	}
 
-		mehcached_shm_mappings[mapping_id].mr = mr;
-	}
-	else
+	// 	mehcached_shm_mappings[mapping_id].mr = mr;
+	// }
+	// else
 		mehcached_shm_mappings[mapping_id].mr = NULL;
 
 #endif

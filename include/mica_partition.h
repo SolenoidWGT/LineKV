@@ -7,5 +7,5 @@
 #define PARTITION_MAX_NUMS 16
 #define PARTITION_NUMS __partition_nums
 
-extern int __partition_nums;
+extern unsigned long long  __partition_nums;
 #endif

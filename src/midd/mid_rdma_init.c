@@ -82,8 +82,6 @@ dhmp_connect(int peer_node_id)
 								client_mgr->config.net_infos[peer_node_id].port);
 
 		/* main thread sleep a while, wait dhmp_event_channel_handler finish connection*/
-		// sleep(1);
-		// sleep_ms(100);
 
 		while(conn->trans_state < DHMP_TRANSPORT_STATE_CONNECTED)
 			sleep_ms(100);
@@ -101,12 +99,6 @@ dhmp_connect(int peer_node_id)
 		else if(conn->trans_state == DHMP_TRANSPORT_STATE_CONNECTED )
 		{
 			conn->is_active = true;
-			// struct ibv_port_attr port_info;
-			// int re = ibv_query_port(dhmp_get_dev_from_client()->verbs, ntohs(rdma_get_src_port(conn->cm_id)), &port_info);
-			// if (re == -1)
-			// 	ERROR_LOG("retrieves ibv_query_port error!");
-			// else
-			// 	INFO_LOG("Client port [%u] max message legnth is [%u].",ntohs(rdma_get_src_port(conn->cm_id)), port_info.max_msg_sz);
 			break;
 		}
 	}
@@ -170,41 +162,8 @@ struct dhmp_client *  dhmp_client_init(size_t buffer_size, bool is_mica_cli)
 	// 客户端主动和主节点建立连接 
 	if (!is_mica_cli)
 	{
-#ifndef CRAQ
-		if(IS_MAIN(server_instance->server_type))
-		{
-			// 头节点需要主动和所有的node建立rdma连接，所有的node都是头节点的server
-			for(i=0; i<client_mgr->config.nets_cnt; i++)
-			{
-				/*server_instance skip himself to avoid connecting himself*/
-				if(server_instance->server_id == i)
-				{
-					client_mgr->self_node_id = i;
-					client_mgr->connect_trans[i] = NULL;
-					continue;
-				}
-
-				INFO_LOG("CONNECT BEGIN: create the [%d]-th normal transport.",i);
-				client_mgr->connect_trans[i] = dhmp_connect(i);
-				if(!client_mgr->connect_trans[i])
-				{
-					ERROR_LOG("create the [%d]-th transport error.",i);
-					continue;
-				}
-				client_mgr->connect_trans[i]->is_active = true;
-				client_mgr->connect_trans[i]->node_id = i;
-				client_mgr->read_mr[i] = init_read_mr(buffer_size, client_mgr->connect_trans[i]->device->pd);
-			}
-		}
-
-		// 排除集群中只有一个副本节点的情况
-		if(IS_REPLICA(server_instance->server_type) && 
-				server_instance->node_nums > 3 &&
-				server_instance->server_id != server_instance->node_nums-1)
-#else
 		if(IS_REPLICA(server_instance->server_type) && 
 			server_instance->server_id != server_instance->node_nums-1)
-#endif
 		{
 			// 中间节点需要主动和下游节点建立rdma连接，只有下游节点是中间节点的server
 			int next_id = server_instance->server_id+1;
@@ -247,7 +206,7 @@ struct dhmp_server * dhmp_server_init(size_t server_id)
 		ERROR_LOG("allocate memory error.");
 		return NULL;
 	}
-
+	memset(server_instance, 0, sizeof(struct dhmp_server));
 	for (i=0; i<MAX_CQ_NUMS; i++)
 		server_instance->ctx.stop_flag[i] = true;
 
@@ -293,32 +252,7 @@ struct dhmp_server * dhmp_server_init(size_t server_id)
 					(unsigned int)server_instance->config.net_infos[server_instance->config.curnet_id].port);
 
 			server_instance->server_id = server_instance->config.curnet_id;
-#ifndef CRAQ
-			if (server_instance->config.nets_cnt < 3)
-			{
-				ERROR_LOG("Too few nodes to start system, at least node num is [3], now is [%d], exit!", \
-						server_instance->config.nets_cnt);
-				exit(0);
-			}
 
-			if (server_instance->server_id == 0)
-				SET_MAIN(server_instance->server_type);
-			else if (server_instance->server_id == 1)
-				SET_MIRROR(server_instance->server_type);
-			else
-				SET_REPLICA(server_instance->server_type);
-			
-			// 尾节点单独 set 标志位
-			if (server_instance->server_id == server_instance->node_nums - 1)
-			{
-				SET_TAIL(server_instance->server_type);
-				INFO_LOG("Tail Node server_id is [%d] ", server_instance->server_id);
-			}
-			
-			// 非主节点的头副本节点
-			if (server_instance->server_id == 2)
-				SET_HEAD(server_instance->server_type);
-#else
 			// 所有节点都是副本节点
 			SET_REPLICA(server_instance->server_type);
 
@@ -335,7 +269,6 @@ struct dhmp_server * dhmp_server_init(size_t server_id)
 				INFO_LOG("Tail Node server_id is [%d] ", server_instance->server_id);
 			}
 
-#endif
 			MID_LOG("Server's node id is [%d], node_nums is [%d], server_type is %d", \
 					server_instance->server_id, server_instance->node_nums, server_instance->server_type);
 			break;
@@ -343,7 +276,7 @@ struct dhmp_server * dhmp_server_init(size_t server_id)
 		else
 		{
 			used_id[used_nums++] = server_instance->config.curnet_id;
-			dhmp_set_curnode_id ( &server_instance->config );
+			dhmp_set_curnode_id ( &server_instance->config, is_ubuntu);
 		}
 	}
 

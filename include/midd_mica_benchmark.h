@@ -7,10 +7,15 @@
  * @FilePath: /LineKV/include/midd_mica_benchmark.h
  */
 
-#define TEST_KV_NUM  64
-#define ACCESS_NUM 300
+#define TEST_KV_NUM 64
+#define ACCESS_NUM __access_num
 
+extern int __access_num;
 extern int rand_num[TEST_KV_NUM];
+extern int read_num, update_num;
+extern enum WORK_LOAD_DISTRIBUTED workload_type;
+extern uint64_t set_counts, get_counts;
+extern int partition_set_count[PARTITION_MAX_NUMS];
 
 void pick_zipfian(int max_num);
 void pick_uniform(int max_num);
@@ -21,7 +26,7 @@ enum WORK_LOAD_DISTRIBUTED
     ZIPFIAN
 };
 
-struct test_kv * generate_test_data(size_t key_offset, size_t val_offset, size_t value_length, size_t kv_nums, size_t node_nums);
+struct test_kv * generate_test_data(size_t key_offset, size_t val_offset, size_t value_length, size_t kv_nums);
 bool  cmp_item_value(size_t a_value_length, const uint8_t *a_out_value, size_t b_value_length,const uint8_t *b_out_value);
 void dump_value_by_addr(const uint8_t * value, size_t value_length);
 bool cmp_item_all_value(size_t a_value_length, const uint8_t *a_out_value, size_t b_value_length,const uint8_t *b_out_value);

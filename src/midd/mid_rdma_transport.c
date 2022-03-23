@@ -14,13 +14,13 @@
 
 static struct dhmp_send_mr* dhmp_get_mr_from_send_list(struct dhmp_transport* rdma_trans, void* addr, int length);
 
-void dhmp_post_recv(struct dhmp_transport* rdma_trans, void *addr);
+void dhmp_post_recv(struct dhmp_transport* rdma_trans, void *addr, size_t partition_id);
 void dhmp_post_all_recv(struct dhmp_transport *rdma_trans);
 
 /*
  *	two sided RDMA operations
  */
-void dhmp_post_recv(struct dhmp_transport* rdma_trans, void *addr)
+void dhmp_post_recv(struct dhmp_transport* rdma_trans, void *addr, size_t partition_id)
 {
 	struct ibv_recv_wr recv_wr, *bad_wr_ptr=NULL;
 	struct ibv_sge sge;
@@ -30,7 +30,7 @@ void dhmp_post_recv(struct dhmp_transport* rdma_trans, void *addr)
 	if(rdma_trans->trans_state>DHMP_TRANSPORT_STATE_CONNECTED)
 		return ;
 	
-	recv_task_ptr=dhmp_recv_task_create(rdma_trans, addr);
+	recv_task_ptr=dhmp_recv_task_create(rdma_trans, addr, partition_id);
 	if(!recv_task_ptr)
 	{
 		ERROR_LOG("create recv task error.");
@@ -57,7 +57,7 @@ void dhmp_post_recv(struct dhmp_transport* rdma_trans, void *addr)
  */
 void dhmp_post_all_recv(struct dhmp_transport *rdma_trans)
 {
-	int i, single_region_size=0;
+	int i, single_region_size=0,j;
 
 	if(rdma_trans->is_poll_qp)
 		single_region_size=SINGLE_POLL_RECV_REGION;
@@ -65,21 +65,23 @@ void dhmp_post_all_recv(struct dhmp_transport *rdma_trans)
 		single_region_size=SINGLE_NORM_RECV_REGION;
 	
 	// DEBUG_LOG("post recv nums is %d", RECV_REGION_SIZE/single_region_size);
-	for(i=0; i<RECV_REGION_SIZE/single_region_size; i++)
-		dhmp_post_recv(rdma_trans, rdma_trans->recv_mr.addr+i*single_region_size);
-	
+	for (j=0; j<PARTITION_NUMS+1; j++)
+	{
+		for(i=0; i<RECV_REGION_SIZE/single_region_size; i++)
+			dhmp_post_recv(rdma_trans, rdma_trans->recv_mr[j].addr+i*single_region_size, j);
+	}
 }
 
 
 
-void dhmp_post_send(struct dhmp_transport* rdma_trans, struct dhmp_msg* msg_ptr)
+void dhmp_post_send(struct dhmp_transport* rdma_trans, struct dhmp_msg* msg_ptr, size_t partition_id)
 {
 	struct ibv_send_wr send_wr,*bad_wr=NULL;
 	struct ibv_sge sge;
 	struct dhmp_task *send_task_ptr;
 	int err=0;
 		
-	send_task_ptr=dhmp_send_task_create(rdma_trans, msg_ptr);
+	send_task_ptr=dhmp_send_task_create(rdma_trans, msg_ptr, partition_id);
 	if(!send_task_ptr)
 	{
 		ERROR_LOG("create recv task error.");
@@ -493,5 +495,5 @@ int dhmp_rdma_write_mica_warpper (struct dhmp_transport* rdma_trans,
 	dhmp_rdma_write(rdma_trans, mr, 
 					(void*)item_get_value_addr(item), 
 					VALUE_HEADER_LEN + length  + VALUE_TAIL_LEN, 
-					remote_addr);
+					(uintptr_t)remote_addr);
 }						

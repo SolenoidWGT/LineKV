@@ -14,11 +14,12 @@
 
 struct dhmp_mica_msg_data
 {
-	volatile char set_tag;
 	struct dhmp_msg* msg;
 	struct dhmp_transport* rdma_trans;
 	enum mica_send_info_type resp_type;
+	volatile char set_tag;
 };
+
 
 typedef void (*dhmp_event_handler)(int fd, void *data_ptr);
 

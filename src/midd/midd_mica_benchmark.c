@@ -12,6 +12,11 @@
 #include "dhmp_log.h"
 #include "midd_mica_benchmark.h"
 
+int __test_size;
+int __access_num=0;
+int read_num, update_num;
+enum WORK_LOAD_DISTRIBUTED workload_type;
+
 const double A = 1.3;  
 const double C = 1.0;  
 double pf[TEST_KV_NUM]; 
@@ -71,20 +76,17 @@ void pick_uniform(int max_num)
 }
 
 struct test_kv *
-generate_test_data(size_t key_offset, size_t val_offset, size_t value_length, size_t kv_nums, size_t node_nums)
+generate_test_data(size_t key_offset, size_t val_offset, size_t value_length, size_t kv_nums)
 {
     size_t i,j;
+    int partition_id;
     struct test_kv *kvs_group;
     kvs_group = (struct test_kv *) malloc(sizeof(struct test_kv) * kv_nums);
     memset(kvs_group, 0, sizeof(struct test_kv) * kv_nums);
 
     for (i = 0; i < kv_nums; i++)
     {
-        size_t key = i + key_offset;
-        // size_t key = 314156;
-        // size_t value = i + offset;
-        // uint64_t key_hash = hash((const uint8_t *)&key, sizeof(key));
-        // value_length = sizeof(value) > value_length ? sizeof(value) : value_length;
+        size_t key = i;
 
         kvs_group[i].true_key_length = sizeof(key);
         kvs_group[i].true_value_length = value_length;
@@ -98,16 +100,11 @@ generate_test_data(size_t key_offset, size_t val_offset, size_t value_length, si
 
         memset(kvs_group[i].value, (int)(i+val_offset), kvs_group[i].true_value_length);
         memcpy(kvs_group[i].key, &key, kvs_group[i].true_key_length);
-        // memcpy(kvs_group[i].value, &value, kvs_group[i].true_value_length);
+
+        partition_id = *((size_t*)kvs_group[i].key)  % (PARTITION_NUMS);
     }
 
     return kvs_group;
-}
-
-static void
-free_test_date()
-{
-
 }
 
 	// size_t 	 out_value_length; 	// 返回值
@@ -176,7 +173,7 @@ void dump_value_by_addr(const uint8_t * value, size_t value_length)
     tail_v = *(uint64_t*) (value + 2*sizeof(uint64_t) + GET_TRUE_VALUE_LEN(value_length));
     dirty = *(bool*)(value + 3*sizeof(uint64_t) + GET_TRUE_VALUE_LEN(value_length));
 
-    INFO_LOG("value header_v is %lu, value_count is %lu, tail_v is %lu, dirty is %d", header_v,value_count,tail_v, dirty);
+    // INFO_LOG("value header_v is %lu, value_count is %lu, tail_v is %lu, dirty is %d", header_v,value_count,tail_v, dirty);
 #ifdef DUMP_VALUE
     const uint8_t * value_base  = (value + 2 * sizeof(uint64_t));
     HexDump(value_base, (int)(GET_TRUE_VALUE_LEN(value_length)), (int) value_base);
