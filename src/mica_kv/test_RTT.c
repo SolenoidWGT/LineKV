@@ -57,7 +57,7 @@ int main(int argc,char *argv[])
             req_msg.msg_type = DHMP_MICA_SEND_INFO_REQUEST;
             req_msg.data_size = sizeof(struct post_datagram);
             req_msg.data= &req;
-            dhmp_post_send(find_connect_server_by_nodeID(SERVER_NODE_ID), &req_msg);
+            dhmp_post_send(find_connect_server_by_nodeID(SERVER_NODE_ID), &req_msg, PARTITION_NUMS);
 
             clock_gettime(CLOCK_MONOTONIC, &start);
             while(req.done_flag == false);

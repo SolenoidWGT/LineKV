@@ -18,7 +18,7 @@
 #include <stdint.h>
 #include <assert.h>
 #include "citycrc.h"
-
+#include "mica_partition.h"
 /*
 static uint32_t crc32_le(uint32_t crc, const uint8_t *data, size_t len)
 {
@@ -106,6 +106,12 @@ static uint64_t hash(const uint8_t *key, size_t len)
     //return sbox_hash(key, len);
     //return hash_md4(key, len);
     //return CityHashCrc128((const char *)key, len).first;
+    
+    // uint64_t key_id = *(uint64_t*)key;
+    // uint64_t partition_id = key_id & (PARTITION_NUMS -1);
+    // uint64_t low_id = (key_id*3141) & 0x00ffffff; 
+    // uint64_t hash_code = (uint64_t) ((partition_id<<48) |  low_id) ;
+    // return hash_code;
     return CityHash64((const char *)key, len);
 }
 

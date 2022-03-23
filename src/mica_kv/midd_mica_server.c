@@ -19,14 +19,14 @@
 #include "midd_mica_benchmark.h"
 #include "mica_partition.h"
 
-
+void new_main_test_through();
 
 pthread_t nic_thread[PARTITION_MAX_NUMS];
 void* (*main_node_nic_thread_ptr) (void* );
 void* (*replica_node_nic_thread_ptr) (void* );
 void test_set(struct test_kv * kvs);
 
-
+struct dhmp_msg* all_access_set_group;
 static size_t SERVER_ID= (size_t)-1;
 
 int main(int argc,char *argv[])
@@ -41,7 +41,7 @@ int main(int argc,char *argv[])
     const size_t num_pages_to_reserve = 16384 - 2048;   // give 2048 pages to dpdk
     
     INFO_LOG("Server argc is [%d]", argc);
-    Assert(argc==4);
+    Assert(argc==8);
     for (i = 0; i<argc; i++)
 	{
         if (i==1)
@@ -51,7 +51,7 @@ int main(int argc,char *argv[])
         }
         else if (i==2)
         {
-            __partition_nums = atoi(argv[i]);
+            __partition_nums = (unsigned long long) atoi(argv[i]);
             Assert(__partition_nums >0 && __partition_nums < PARTITION_MAX_NUMS);
             INFO_LOG("Server __partition_nums is [%d]", __partition_nums);
         }
@@ -59,6 +59,66 @@ int main(int argc,char *argv[])
         {
             is_ubuntu = atoi(argv[i]);
             INFO_LOG("Server is_ubuntu is [%d]", is_ubuntu);
+        }
+        else if (i==4)
+        {
+            __test_size = atoi(argv[i]);
+            INFO_LOG(" __test_size is [%d]", __test_size);
+        }
+        else if (i==5)
+        {
+            if (strcmp(argv[i], "uniform") == 0)
+            {
+                INFO_LOG(" workload_type is [%s]", argv[i]);
+                workload_type=UNIFORM;
+            }
+            else if (strcmp(argv[i], "zipfian") == 0)
+            {
+                INFO_LOG(" workload_type is [%s]", argv[i]);
+                workload_type=ZIPFIAN;
+            }
+            else
+            {
+                ERROR_LOG("Unkown workload!");
+                exit(0);
+            }
+        }
+        else if (i==6)
+        {
+            __access_num = atoi(argv[i]);
+            INFO_LOG(" __access_num is [%d]", __access_num);
+        }
+        else if (i==7)
+        {
+            if(strcmp(argv[i], "1:1") == 0)
+            {
+                INFO_LOG(" RW_TATE is [%s]", argv[i]);
+                read_num = ACCESS_NUM /2;
+                update_num = ACCESS_NUM /2;
+            }
+            else if(strcmp(argv[i], "0:1") == 0)
+            {
+                INFO_LOG(" RW_TATE is [%s]", argv[i]);
+                read_num = 0;
+                update_num = ACCESS_NUM;
+            }
+            else if(strcmp(argv[i], "1:0") == 0)
+            {
+                INFO_LOG(" RW_TATE is [%s]", argv[i]);
+                read_num = ACCESS_NUM;
+                update_num = 0;
+            }
+            else if(strcmp(argv[i], "4:1") == 0)
+            {
+                INFO_LOG(" RW_TATE is [%s]", argv[i]);
+                read_num = (int)(0.8 * ACCESS_NUM);
+                update_num = (int)(0.2 * ACCESS_NUM);
+            }
+            else
+            {
+                ERROR_LOG("Unkown rate!");
+                exit(0);
+            }
         }
 	}
 
@@ -102,8 +162,7 @@ int main(int argc,char *argv[])
         mehcached_table_init(log_table, TABLE_BUCKET_NUMS, 1, TABLE_POOL_SIZE, true, true, true,\
              numa_nodes[0], numa_nodes, MEHCACHED_MTH_THRESHOLD_FIFO);
 
-        mirror_node_mapping = (struct replica_mappings *) malloc(sizeof(struct replica_mappings));
-        memset(mirror_node_mapping, 0, sizeof(struct replica_mappings));
+        memset(mirror_node_mapping, 0, sizeof(struct replica_mappings) * PARTITION_MAX_NUMS);
         Assert(main_table);
     }
 
@@ -131,7 +190,10 @@ int main(int argc,char *argv[])
 		micaserver_get_cliMR(next_node_mappings, REPLICA_NODE_HEAD_ID);
 
         // 主节点需要知道镜像节点的一块mr地址
-        micaserver_get_cliMR(mirror_node_mapping, MIRROR_NODE_ID);
+        micaserver_get_cliMR(&mirror_node_mapping[0], MIRROR_NODE_ID);
+
+        for (i=1; i<(int)PARTITION_NUMS; i++)
+            memcpy(&mirror_node_mapping[i], &mirror_node_mapping[0], sizeof(struct replica_mappings));
 
 		// 等待全部节点初始化完成,才能开放服务
 		// 因为是主节点等待，所以主节点主动去轮询，而不是被动等待从节点发送完成信号
@@ -283,9 +345,139 @@ int main(int argc,char *argv[])
         INFO_LOG("---------------------------Replica Node [%d] init finished!---------------------------", server_instance->server_id);
     }
 
+#ifdef MAIN_LOG_DEBUG_THROUGHOUT
+    if (IS_MAIN(server_instance->server_type))
+    {
+        new_main_test_through();
+    }
+#endif
+
     pthread_join(server_instance->ctx.epoll_thread, NULL);
     // pthread_join(server_instance->ctx.busy_wait_cq_thread, NULL);
     return 0;
+}
+
+
+struct dhmp_msg* 
+pack_test_resq(struct test_kv * kvs, int tag)
+{
+    void * base;
+    struct dhmp_msg* msg;
+	struct post_datagram *req_msg;
+	struct dhmp_mica_set_request *req_data;
+    size_t key_length  = kvs->true_key_length +  KEY_TAIL_LEN;
+    size_t value_length= kvs->true_value_length + VALUE_HEADER_LEN + VALUE_TAIL_LEN;
+    size_t total_length = sizeof(struct post_datagram) + sizeof(struct dhmp_mica_set_request) + key_length + value_length;
+    msg = (struct dhmp_msg*)malloc(sizeof(struct dhmp_msg));
+	base = malloc(total_length); 
+	memset(base, 0 , total_length);
+	req_msg  = (struct post_datagram *) base;
+	req_data = (struct dhmp_mica_set_request *)((char *)base + sizeof(struct post_datagram));
+	
+    // 填充公共报文
+	req_msg->node_id = MAIN;	 // 向对端发送自己的 node_id 用于身份辨识
+	req_msg->req_ptr = req_msg;
+	req_msg->done_flag = false;
+	req_msg->info_type = MICA_SET_REQUEST;
+	req_msg->info_length = sizeof(struct dhmp_mica_set_request);
+
+	// 填充私有报文
+	req_data->current_alloc_id = 0;
+	req_data->expire_time = 0;
+	req_data->key_hash = kvs->key_hash;
+	req_data->key_length = key_length;
+	req_data->value_length = value_length;	// 这里的 value 长度是包含了value头部和尾部的长度
+	req_data->overwrite = true;
+	req_data->is_update = false;
+	req_data->tag = (size_t)tag;
+    req_data->partition_id = (int) (*((size_t*)kvs->key)  % (PARTITION_NUMS));
+	memcpy(&(req_data->data), kvs->key, kvs->true_key_length);		// copy key
+    memcpy(( (void*)&(req_data->data) + key_length), kvs->value,  kvs->true_value_length);	
+
+    msg->data = base;
+    msg->data_size = total_length;
+    msg->msg_type = DHMP_MICA_SEND_INFO_REQUEST;
+    INIT_LIST_HEAD(&msg->list_anchor);
+    msg->trans = NULL;
+    msg->recv_partition_id = -1;
+    Assert(msg->list_anchor.next != LIST_POISON1 && msg->list_anchor.prev!= LIST_POISON2);
+    return msg;
+}
+
+void workloada_server(struct test_kv * kvs_group);
+
+void new_main_test_through()
+{
+    struct test_kv * kvs_group = generate_test_data((size_t)0, (size_t)1, (size_t)__test_size , (size_t)TEST_KV_NUM);
+    workloada_server(kvs_group);
+}
+
+// 1：1
+void workloada_server(struct test_kv * kvs_group)
+{
+	int i = 0;
+    int idx;
+    // struct timespec start_t, end_t;
+    long long int set_time=0, get_time=0;
+    //struct set_requset_pack req_callback_ptr;	
+    // 生成Zipfian数据
+    switch (workload_type)
+    {
+        case UNIFORM:
+            pick_uniform(TEST_KV_NUM);
+            break;
+        case ZIPFIAN:
+            pick_zipfian(TEST_KV_NUM);
+            break;
+        default:
+            ERROR_LOG("Unkown!");
+            break;
+    }
+    INFO_LOG("pick");
+
+    struct dhmp_msg** set_msg_pack = (struct dhmp_msg**) malloc( (size_t)ACCESS_NUM * sizeof(void*));
+    int * idx_array = (int*) malloc((size_t)ACCESS_NUM * sizeof(int));
+    for (i=0; i<(int)ACCESS_NUM;i++)
+    {
+        idx = (int)rand_num[i % TEST_KV_NUM];
+        set_msg_pack[i] = pack_test_resq(&kvs_group[idx], idx);
+        idx_array[i] = i;
+    }
+
+    struct timespec start_through, end_through;
+    long long int total_set_through_time=0;
+	for(i=0;i < ACCESS_NUM ;i++)
+	{
+        // addr_table_update(addr_table[rand_num[j]],local_buf);
+        bool is_async;
+        //clock_gettime(CLOCK_MONOTONIC, &start_t);
+        if (set_counts == 100)
+            clock_gettime(CLOCK_MONOTONIC, &start_through);
+
+        dhmp_send_request_handler(NULL, set_msg_pack[i], &is_async, 0, 0);
+        // INFO_LOG("set tag is [%ld], set counts [%d]", idx_array[i], i);
+        // clock_gettime(CLOCK_MONOTONIC, &end_t);	
+        // set_time += (((end_t.tv_sec * 1000000000) + end_t.tv_nsec) - ((start_t.tv_sec * 1000000000) + start_t.tv_nsec)); 
+
+#ifdef MAIN_LOG_DEBUG_THROUGHOUT
+        set_counts++;
+        if (set_counts == (uint64_t)__access_num) 
+        {
+            clock_gettime(CLOCK_MONOTONIC, &end_through);
+            total_set_through_time = ((((end_through.tv_sec * 1000000000) + end_through.tv_nsec) - ((start_through.tv_sec * 1000000000) + start_through.tv_nsec)));
+            ERROR_LOG("[set] count[%d] through_out time is [%lld] us", (__access_num-100), total_set_through_time /1000);
+            for (i=0; i<(int)PARTITION_NUMS; i++)
+                ERROR_LOG("partition[%d] set count [%d]",i, partition_set_count[i]);
+        }
+#endif
+	}
+
+    if (read_num!=0)
+        ERROR_LOG("workloada test FINISH! avg get time is [%ld]us",  get_time /( US_BASE * read_num));
+    if (update_num!=0)
+        ERROR_LOG("workloada test FINISH! avg set time is [%ld]us",  set_time /( US_BASE * update_num));
+    
+    sleep(10);
 }
 
 // 测试所有节点中的数据必须一致
@@ -309,8 +501,8 @@ void test_get_consistent(struct test_kv * kvs MEHCACHED_UNUSED)
     //     Assert(item != NULL);
 
     //     // 测试本地 table 数据一致
-    //     if (!mid_mehcached_get_warpper(0, main_table, key_hash, key, true_key_length,\
-    //                                  out_value, &out_value_length, \
+    //     if (!mid_mehcached_get_warpper(0, main_table, key_hash, key, true_key_length,
+    //                                  out_value, &out_value_length,
     //                                  &expire_time, false, true))
     //     {
     //         ERROR_LOG("key hash [%lx] get false", key_hash);

@@ -12,6 +12,11 @@
 #include "dhmp_log.h"
 #include "midd_mica_benchmark.h"
 
+int __test_size;
+int __access_num=0;
+int read_num, update_num;
+enum WORK_LOAD_DISTRIBUTED workload_type;
+
 const double A = 1.3;  
 const double C = 1.0;  
 double pf[TEST_KV_NUM]; 
@@ -71,20 +76,22 @@ void pick_uniform(int max_num)
 }
 
 struct test_kv *
-generate_test_data(size_t key_offset, size_t val_offset, size_t value_length, size_t kv_nums, size_t node_nums)
+generate_test_data(size_t key_offset, size_t val_offset, size_t value_length, size_t kv_nums)
 {
     size_t i,j;
+    int partition_id;
     struct test_kv *kvs_group;
     kvs_group = (struct test_kv *) malloc(sizeof(struct test_kv) * kv_nums);
     memset(kvs_group, 0, sizeof(struct test_kv) * kv_nums);
 
     for (i = 0; i < kv_nums; i++)
     {
-        size_t key = i + key_offset;
+        size_t key = i;
         // size_t key = 314156;
         // size_t value = i + offset;
         // uint64_t key_hash = hash((const uint8_t *)&key, sizeof(key));
         // value_length = sizeof(value) > value_length ? sizeof(value) : value_length;
+
 
         kvs_group[i].true_key_length = sizeof(key);
         kvs_group[i].true_value_length = value_length;
@@ -92,6 +99,7 @@ generate_test_data(size_t key_offset, size_t val_offset, size_t value_length, si
         kvs_group[i].value = (uint8_t*) malloc(kvs_group[i].true_value_length);
         kvs_group[i].key_hash = hash(kvs_group[i].key, kvs_group[i].true_key_length );
 
+ 
         // 注意我们 get 回来的数据需要  考虑到 header 和 tail 的大小
         for (j=0; j<1; j++) // 暂时只开一个缓冲区
             kvs_group[i].get_value[j] = (uint8_t*) malloc(kvs_group[i].true_value_length + VALUE_HEADER_LEN + VALUE_TAIL_LEN);
@@ -99,6 +107,9 @@ generate_test_data(size_t key_offset, size_t val_offset, size_t value_length, si
         memset(kvs_group[i].value, (int)(i+val_offset), kvs_group[i].true_value_length);
         memcpy(kvs_group[i].key, &key, kvs_group[i].true_key_length);
         // memcpy(kvs_group[i].value, &value, kvs_group[i].true_value_length);
+        
+        partition_id = *((size_t*)kvs_group[i].key)  % (PARTITION_NUMS);
+        //ERROR_LOG("Hash code %x, partition_id: [%d]", kvs_group[i].key_hash, partition_id);
     }
 
     return kvs_group;

@@ -10,6 +10,7 @@
 #include "dhmp_client.h"
 #include "dhmp_log.h"
 #include "dhmp_dev.h"
+#include "dhmp_server.h"
 
 /**
  *	the success work completion handler function
@@ -22,15 +23,19 @@ static void dhmp_wc_success_handler(struct ibv_wc* wc)
 	struct dhmp_task *task_ptr;
 	struct dhmp_transport *rdma_trans;
 	struct dhmp_msg *msg;
+	struct post_datagram *req_datagram;
 	// 由于我们异步化了 wc 处理，所以必须把 msg 变成堆上内存而不是栈中内存。
 	// struct dhmp_msg msg;
 	
 	bool is_async = false;
+	size_t peer_partition_id = (size_t)-1;
+	int recv_partition_id;
 	
 	//DEFINE_STACK_TIMER();
 	struct timespec start, end;
 	task_ptr=(struct dhmp_task*)(uintptr_t)wc->wr_id;
 	rdma_trans=task_ptr->rdma_trans;
+	recv_partition_id= task_ptr->partition_id;
 
 	switch(wc->opcode)
 	{
@@ -38,26 +43,48 @@ static void dhmp_wc_success_handler(struct ibv_wc* wc)
 			break;
 
 		case IBV_WC_RECV_RDMA_WITH_IMM: // 镜像节点(imm的接收方)唤醒，去处理主节点的写请求
-			//INFO_LOG("imm_data [%x]", ntohl(wc->imm_data));
-			dhmp_mica_set_request_handler(rdma_trans, NULL);
-			dhmp_post_recv(rdma_trans, task_ptr->sge.addr);
-			//INFO_LOG("IBV_WC_RECV_RDMA_WITH_IMM");
+			// 由于发送方没有提供 msg， 所以需要自己 malloc 一个
+			Assert(IS_MIRROR(server_instance->server_type));
+			msg = (struct dhmp_msg *) malloc(sizeof(struct dhmp_msg) + sizeof(struct post_datagram));
+			req_datagram = (struct post_datagram *)((char*)msg + sizeof(struct dhmp_msg));
+			msg->msg_type = DHMP_MICA_SEND_INFO_REQUEST;
+			msg->data_size = 0;
+			msg->data = req_datagram;
+			// 以下数据不会从报文中获取
+			INIT_LIST_HEAD(&msg->list_anchor);
+			msg->trans = rdma_trans;
+			peer_partition_id = (size_t)ntohl(wc->imm_data);
+			req_datagram->info_type = MICA_SET_REQUEST;
+
+			//ERROR_LOG("IBV_WC_RECV_RDMA_WITH_IMM [%d]", partition_id);
+
+			// 多线程分区处理
+			distribute_partition_resp(peer_partition_id, rdma_trans, msg, start.tv_sec, start.tv_nsec);
+
+			// 由于 mirror 收到 imm 报文不需要保存接收缓冲区，因为可以立刻释放接收缓冲区
+			dhmp_post_recv(rdma_trans, task_ptr->sge.addr, recv_partition_id);
+			//  = dhmp_mica_set_request_handler(rdma_trans, NULL, ntohl(wc->imm_data));
+			
 			break;
 		case IBV_WC_RECV:
 			msg = (struct dhmp_msg *) malloc(sizeof(struct dhmp_msg));
 			/*read the msg content from the task_ptr sge addr*/
 			msg->msg_type=*(enum dhmp_msg_type*)task_ptr->sge.addr;
 			msg->data_size=*(size_t*)(task_ptr->sge.addr+sizeof(enum dhmp_msg_type));
-			msg->data=task_ptr->sge.addr+sizeof(enum dhmp_msg_type)+sizeof(size_t);
-			
+			msg->data= task_ptr->sge.addr + sizeof(enum dhmp_msg_type) + sizeof(size_t);
+			// 以下数据不会从报文中获取
+			INIT_LIST_HEAD(&msg->list_anchor);
+			msg->trans = rdma_trans;
+			msg->recv_partition_id = recv_partition_id;
+
 			//MICA_TIME_COUNTER_INIT();
 			clock_gettime(CLOCK_MONOTONIC, &start);
-			dhmp_wc_recv_handler(rdma_trans, msg, &is_async,start.tv_sec, start.tv_nsec );
+			dhmp_wc_recv_handler(rdma_trans, msg, &is_async,start.tv_sec, start.tv_nsec);
 			// dhmp_post_recv 需要放到多线程的末尾去处理
 			// 发送双边操作的数据大小不能超过  SINGLE_NORM_RECV_REGION （16MB）
 			if (! is_async)
 			{
-				dhmp_post_recv(rdma_trans, task_ptr->sge.addr);
+				dhmp_post_recv(rdma_trans, task_ptr->sge.addr, recv_partition_id);
 				free(msg);
 			}
 			//MICA_TIME_COUNTER_CAL("dhmp_wc_recv_handler");
@@ -103,7 +130,7 @@ static void dhmp_wc_error_handler(struct ibv_wc* wc)
 	{
 		ERROR_LOG("wc status is [%s], byte_len is [%u], opcode is [%s]", \
 				ibv_wc_status_str(wc->status), wc->byte_len, dhmp_wc_opcode_str(wc->opcode));
-		exit(-1);
+		return;
 	}
 
 }
@@ -155,7 +182,7 @@ void dhmp_comp_channel_handler(struct dhmp_cq* dcq)
 	}
 }
 
-void busy_wait_cq_handler(void* data)
+void* busy_wait_cq_handler(void* data)
 {
 	struct dhmp_cq* dcq = (struct dhmp_cq* )data;
 	dhmp_comp_channel_handler(dcq);

@@ -26,11 +26,6 @@
 
 bool ica_cli_get(struct test_kv *kv_entry, void *user_buff, size_t *out_value_length, size_t target_id, size_t tag);
 struct test_kv * kvs;
-int __test_size;
-int __access_num=0;
-int read_num, update_num;
-enum WORK_LOAD_DISTRIBUTED workload_type;
- 
 
 struct dhmp_client *  
 dhmp_test_client_init(size_t buffer_size)
@@ -102,7 +97,7 @@ Get_Retry:
     }
 
     // 释放接受缓冲区,此时该块缓冲区就可以被其他的任务可见
-    dhmp_post_recv(resp->trans_data.rdma_trans, resp->trans_data.msg->data - sizeof(enum dhmp_msg_type) - sizeof(size_t));
+    dhmp_post_recv(resp->trans_data.rdma_trans, resp->trans_data.msg->data - sizeof(enum dhmp_msg_type) - sizeof(size_t), PARTITION_NUMS);
     // 释放所有指针
     free(container_of(&(resp->trans_data.msg->data), struct dhmp_msg , data));
     free(reuse_ptrs.req_base_ptr);
@@ -110,6 +105,8 @@ Get_Retry:
     INFO_LOG("free");
     return re;
 }
+
+
 
 // 1：1
 void workloada()
@@ -121,7 +118,7 @@ void workloada()
     int __read_num = read_num;
     int __update_num = update_num;
     int suiji;
-
+    struct set_requset_pack req_callback_ptr;	
     // 生成Zipfian数据
     switch (workload_type)
     {
@@ -175,12 +172,25 @@ void workloada()
                                         kvs[idx].value,
                                         kvs[idx].true_value_length, 
                                         0, true,
-                                        false, 
-                                        NULL,
+                                        true, 
+                                        &req_callback_ptr,
                                         MAIN,
                                         is_update,
                                         client_mgr->self_node_id,
                                         (size_t)idx);
+                // mica_set_remote_warpper(0, 
+                //                         kvs[idx].key,
+                //                         kvs[idx].key_hash, 
+                //                         kvs[idx].true_key_length, 
+                //                         kvs[idx].value,
+                //                         kvs[idx].true_value_length, 
+                //                         0, true,
+                //                         false, 
+                //                         NULL,
+                //                         MAIN,
+                //                         is_update,
+                //                         client_mgr->self_node_id,
+                //                         (size_t)idx);
                 clock_gettime(CLOCK_MONOTONIC, &end_t);	
                 set_time += (((end_t.tv_sec * 1000000000) + end_t.tv_nsec) - ((start_t.tv_sec * 1000000000) + start_t.tv_nsec)); 
 			}
@@ -290,7 +300,7 @@ int main(int argc,char *argv[])
         }
         else if (i==2)
         {
-            __partition_nums = atoi(argv[i]);
+            __partition_nums = (unsigned long long)atoi(argv[i]);
             Assert(__partition_nums >0 && __partition_nums < PARTITION_MAX_NUMS);
             INFO_LOG(" __partition_nums is [%d]", __partition_nums);
         }
@@ -369,9 +379,10 @@ int main(int argc,char *argv[])
     }
 
     // kvs = generate_test_data(1, 1, 1024-VALUE_HEADER_LEN-VALUE_TAIL_LEN, TEST_KV_NUM, (size_t)client_mgr->config.nets_cnt);
-    kvs = generate_test_data(1, 1, __test_size , TEST_KV_NUM, (size_t)client_mgr->config.nets_cnt);
+    kvs = generate_test_data(1, 1, (size_t)__test_size , TEST_KV_NUM);
 
     workloada();
 
+    sleep(100);
     return 0;
 }

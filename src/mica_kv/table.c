@@ -487,7 +487,7 @@ mehcached_set_item(struct mehcached_item *item, uint64_t key_hash, const uint8_t
     Assert(value_length <= MEHCACHED_VALUE_MASK);
 
     size_t true_value_len = value_length - VALUE_HEADER_LEN - VALUE_TAIL_LEN;
-    size_t true_key_len = key_length - KEY_HEADER_LEN;
+    size_t true_key_len = key_length - KEY_TAIL_LEN;
 
     // uint8_t* base = item->data;         
     uint8_t* key_data;
@@ -1724,7 +1724,7 @@ midd_mehcached_set_warpper(uint8_t current_alloc_id, struct mehcached_table *tab
                 uint32_t expire_time, bool overwrite, bool *is_update, bool *is_maintable, struct mehcached_item * main_item)
 {
     return mehcached_set(current_alloc_id, table, key_hash, key, 
-                            key_length + KEY_HEADER_LEN, 
+                            key_length + KEY_TAIL_LEN, 
                             value, 
                             VALUE_HEADER_LEN + value_length + VALUE_TAIL_LEN, 
                             expire_time, overwrite, is_update, is_maintable, main_item);
@@ -1736,7 +1736,7 @@ mid_mehcached_get_warpper(uint8_t current_alloc_id MEHCACHED_UNUSED, struct mehc
                             uint32_t *out_expire_time, bool readonly MEHCACHED_UNUSED, bool get_true_value, MICA_GET_STATUS *get_status)
 {
     return mehcached_get(current_alloc_id, table, key_hash, key, 
-                            key_length + KEY_HEADER_LEN, 
+                            key_length + KEY_TAIL_LEN, 
                             out_value, 
                             in_out_value_length, 
                             out_expire_time, readonly, get_true_value, get_status);
@@ -1779,17 +1779,17 @@ struct mehcached_item *
 get_item_by_offset(struct mehcached_table *table, uint64_t item_offset)
 {
     struct mehcached_item * item;
-    size_t value_length, key_length;
+    // size_t value_length, key_length;
     
     item = (struct mehcached_item *)mehcached_dynamic_item(&table->alloc, item_offset);
-    value_length = MEHCACHED_VALUE_LENGTH(item->kv_length_vec);
-    key_length = MEHCACHED_KEY_LENGTH(item->kv_length_vec);
+    // value_length = MEHCACHED_VALUE_LENGTH(item->kv_length_vec);
+    // key_length = MEHCACHED_KEY_LENGTH(item->kv_length_vec);
 
     //INFO_LOG("item mapping_id is %d, value_length is %lu, key_length is %lu", item->mapping_id, value_length, key_length);
     return item;
 }
 
-// 将 key 的长度减去 KEY_HEADER_LEN
+// 将 key 的长度减去 KEY_TAIL_LEN
 size_t
 mehcached_find_item_index_warpper(const struct mehcached_table *table, 
                     struct mehcached_bucket *bucket, uint64_t key_hash,
@@ -1797,15 +1797,15 @@ mehcached_find_item_index_warpper(const struct mehcached_table *table,
                     struct mehcached_bucket **located_bucket)
 {
     return mehcached_find_item_index(table, bucket, key_hash, tag, key, 
-                                        key_length - KEY_HEADER_LEN, 
+                                        key_length - KEY_TAIL_LEN, 
                                         located_bucket);
 }            
 
-// 将本地 key 长度减去 KEY_HEADER_LEN
+// 将本地 key 长度减去 KEY_TAIL_LEN
 static bool
 mehcached_compare_keys_warpper(const uint8_t *key1, size_t key1_len, const uint8_t *key2, size_t key2_len)
 {
-    return mehcached_compare_keys(key1, key1_len - KEY_HEADER_LEN, key2, key2_len);
+    return mehcached_compare_keys(key1, key1_len - KEY_TAIL_LEN, key2, key2_len);
 }
 
 static bool

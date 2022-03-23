@@ -55,7 +55,7 @@ static size_t mehcached_shm_used_memory;
 static const char *mehcached_shm_path_prefix = "/home/gtwang/midd_mica/map_files/mehcached_shm_";
 
 struct replica_mappings * next_node_mappings = NULL;
-struct replica_mappings * mirror_node_mapping = NULL;
+struct replica_mappings mirror_node_mapping[PARTITION_MAX_NUMS];
 
 inline struct ibv_mr*
 return_shm_mr(size_t idx)
@@ -281,7 +281,7 @@ mehcached_shm_map(size_t entry_id, void *ptr, void ** bucket_ptr,
 	// map
 	void *p = ptr;
 	size_t page_index = page_offset;
-	size_t page_index_end = page_offset + num_pages;
+	//size_t page_index_end = page_offset + num_pages;
 	int error = 0;
 
 	size_t total_alloc_pages = mehcached_shm_page_size * num_pages;

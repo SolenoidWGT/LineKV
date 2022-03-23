@@ -27,7 +27,8 @@ rdma_trans_send_mr_unlock(struct dhmp_transport* rdma_trans)
 
 struct dhmp_task* 
 dhmp_recv_task_create(struct dhmp_transport* rdma_trans, 
-										void *addr )
+										void *addr,
+										size_t partition_id)
 {
 	struct dhmp_task *recv_task;
 
@@ -45,18 +46,19 @@ dhmp_recv_task_create(struct dhmp_transport* rdma_trans,
 	/*according to the flag of is_poll_qp,
 	 decide to post what size sge*/
 	recv_task->sge.length=SINGLE_NORM_RECV_REGION;
-
-	recv_task->sge.lkey=rdma_trans->recv_mr.mr->lkey;
+	recv_task->partition_id = partition_id;
+	recv_task->sge.lkey=rdma_trans->recv_mr[partition_id].mr->lkey;
 	recv_task->rdma_trans=rdma_trans;
 
 	return recv_task;
 }
 
 struct dhmp_task* dhmp_send_task_create(struct dhmp_transport* rdma_trans,
-										struct dhmp_msg *msg)
+										struct dhmp_msg *msg,
+										size_t partition_id)
 {
 	struct dhmp_task *send_task;
-	struct dhmp_mr *send_mr=&rdma_trans->send_mr;
+	struct dhmp_mr *send_mr=&(rdma_trans->send_mr[partition_id]);
 	
 	// memory leak ?
 	send_task=malloc(sizeof(struct dhmp_task));
@@ -69,17 +71,19 @@ struct dhmp_task* dhmp_send_task_create(struct dhmp_transport* rdma_trans,
 	send_task->sge.length=sizeof(enum dhmp_msg_type)+
 							sizeof(size_t)+
 							msg->data_size;
+	// send_task->sge.length=offsetof(struct dhmp_msg, data)+msg->data_size;
 
 	// 目前dhmp中post send 使用的是一个环形缓冲区
 	if(send_mr->cur_pos+send_task->sge.length>SEND_REGION_SIZE)
 	{
-		INFO_LOG("dhmp reuse send_buffer!");
+		ERROR_LOG("dhmp reuse send_buffer!");
 		send_mr->cur_pos=0;
 	}
 
 	send_task->sge.addr=send_mr->addr+send_mr->cur_pos;
 	send_task->sge.lkey=send_mr->mr->lkey;
 	send_task->rdma_trans=rdma_trans;
+	send_task->partition_id = partition_id;
 	
 	send_mr->cur_pos+=send_task->sge.length;
 	
@@ -140,33 +144,3 @@ struct dhmp_task* dhmp_write_task_create(struct dhmp_transport* rdma_trans,
 
 	return write_task;
 }
-
-// TODO 更高效的双边 send_mr 管理
-// void * mica_get_trans_mr_addr(struct dhmp_transport* rdma_trans)
-// {
-// 	struct dhmp_task *send_task;
-// 	struct dhmp_mr *send_mr=&rdma_trans->send_mr;
-
-// 	rdma_trans_send_mr_lock(rdma_trans);
-// 	// 目前dhmp中post send 使用的是一个环形缓冲区
-// 	if(send_mr->cur_pos+send_task->sge.length>SEND_REGION_SIZE)
-// 	{
-// 		INFO_LOG("dhmp reuse send_buffer!");
-// 		send_mr->cur_pos=0;
-// 	}
-
-// 	send_task->sge.addr=send_mr->addr+send_mr->cur_pos;
-// 	send_task->sge.lkey=send_mr->mr->lkey;
-// 	send_task->rdma_trans=rdma_trans;
-	
-// 	send_mr->cur_pos+=send_task->sge.length;
-	
-// 	/*use msg build send task*/
-// 	memcpy(send_task->sge.addr, &msg->msg_type, sizeof(enum dhmp_msg_type));
-// 	memcpy(send_task->sge.addr+sizeof(enum dhmp_msg_type), 
-// 			&msg->data_size, sizeof(size_t));
-// 	memcpy(send_task->sge.addr+sizeof(enum dhmp_msg_type)+sizeof(size_t), 
-// 			msg->data, msg->data_size);
-
-// 	return send_task;
-// }

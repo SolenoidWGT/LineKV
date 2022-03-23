@@ -154,7 +154,13 @@ enum response_state
 struct dhmp_msg{
 	enum dhmp_msg_type msg_type;
 	size_t data_size;		// 整个报文的长度（包含 post_datagram header）
+
+	// 下面的数据不会参与到网络传输中
 	void *data;
+	// 多线程任务下发
+	struct list_head list_anchor;
+	struct dhmp_transport * trans;
+	int recv_partition_id;
 };
 
 /*struct dhmp_addr_info is the addr struct in cluster*/
@@ -240,12 +246,18 @@ struct dhmp_mica_set_request
 	bool 		overwrite;
 	bool		is_update;
 	bool 		is_success;					// 返回值，如果为false需要重试
+
+	// bool		replica_1;
+	// bool		replica_2;
+
 	size_t 		out_mapping_id;				// 远端set后对应的item的 mapping_Id，返回值
 	uintptr_t   out_value_addr;				// 远端set后对应的item value 的虚拟地址，返回值
 
 	size_t	tag;	// 这个 tag 用于标识 set 的序号，只有debug的时候有用，性能测试的时候要关闭
 
 	int partition_id;
+	int count_num;
+	 
 
 	// 临时缓冲链表锚点
 	// struct list_head sending_list;
@@ -262,6 +274,7 @@ struct dhmp_mica_set_response
 	uint64_t 	key_hash;
 	size_t 		key_length;
 	int 		partition_id;
+	int 		tag;
 	bool 		is_success;
 	uint8_t 	key_data[0];
 };
@@ -433,10 +446,12 @@ void dump_value_by_addr(const uint8_t * value, size_t value_length);
 #define TABLE_BUCKET_NUMS 1024*1024*4
 #define INIT_DHMP_CLIENT_BUFF_SIZE 1024*1024*8
 
-void 
+bool 
 main_node_broadcast_matedata(struct dhmp_mica_set_request  * req_info, 
 							  struct mehcached_item * item, void * key_addr, 
-							  void * value_addr, bool is_update, bool is_maintable);
+							  void * value_addr, bool is_update, bool is_maintable,
+							  struct post_datagram * req_msg,
+							  size_t total_length);
 
 int init_mulit_server_work_thread();
 
@@ -453,7 +468,7 @@ extern int thread_num;
 extern int __test_size;
 #define MAX_CQ_NUMS 10
 
-void busy_wait_cq_handler(void* data);
+void* busy_wait_cq_handler(void* data);
 
 void init_busy_wait_rdma_buff(struct p2p_mappings * busy_wait_rdma_p2p[PARTITION_MAX_NUMS]);
 
@@ -464,4 +479,19 @@ struct dhmp_mica_get_p2p_MR_info_RQ
 	void *p2p_addr;
 };
 
+// static 
+// inline int dhmp_cal_parttion_id(uint64_t key_hash)
+// {
+// 	int id = (uint16_t) key_hash & (uint16_t)(PARTITION_NUMS  - 1);
+// };
+#define MAIN_LOG_DEBUG_THROUGHOUT 
+// #define START_COUNT 1000
+// #define END_COUNT 4000
+void dhmp_send_request_handler(struct dhmp_transport* rdma_trans,
+									struct dhmp_msg* msg, 
+									bool * is_async,
+									 __time_t time_start1, 
+									 __syscall_slong_t time_start2);
+
+void distribute_partition_resp(int partition_id, struct dhmp_transport* rdma_trans, struct dhmp_msg* msg,  __time_t time_start1, __syscall_slong_t time_start2);
 #endif

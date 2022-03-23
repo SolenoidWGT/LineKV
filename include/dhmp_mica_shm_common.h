@@ -35,6 +35,7 @@
 #define MEHCACHED_SHM_MAX_PAGES (65536)
 #define MEHCACHED_SHM_MAX_ENTRIES (8192)
 #define MEHCACHED_SHM_MAX_MAPPINGS (16384)
+#define LINKKV_SHM_MAX_MAPPINGS (4)
 struct mehcached_shm_mapping
 {
 	size_t entry_id;
@@ -56,10 +57,11 @@ struct replica_mappings
 
 	void * mirror_virtual_addr;
 	struct ibv_mr mirror_mr;
-	volatile bool in_used_flag;
+	// volatile uint64_t in_used_flag;
+	volatile char in_used_flag;
 
-	struct mehcached_shm_mapping mehcached_shm_pages[MEHCACHED_SHM_MAX_MAPPINGS];
-	struct ibv_mr 			 	 mrs[MEHCACHED_SHM_MAX_MAPPINGS];
+	struct mehcached_shm_mapping mehcached_shm_pages[LINKKV_SHM_MAX_MAPPINGS];
+	struct ibv_mr 			 	 mrs[LINKKV_SHM_MAX_MAPPINGS];
 };
 
 
@@ -74,12 +76,11 @@ void copy_mapping_mrs_info(struct ibv_mr * mrs);
 inline size_t get_mapping_nums();
 
 extern struct replica_mappings * next_node_mappings;
-extern struct replica_mappings * mirror_node_mapping;
+extern struct replica_mappings mirror_node_mapping[PARTITION_MAX_NUMS];
 // extern struct p2p_mappings * busy_wait_rdma_p2p[PARTITION_MAX_NUMS];
 
-
 struct ibv_mr * mehcached_get_mapping_self_mr(struct replica_mappings * mappings, size_t mapping_id);
-void makeup_update_request(struct mehcached_item * item, uint64_t item_offset, const uint8_t *value, uint32_t value_length, size_t tag);
+void makeup_update_request(struct mehcached_item * item, uint64_t item_offset, const uint8_t *value, uint32_t value_length, size_t tag, int partition_id);
 
 extern size_t table_mapping_id_1, table_mapping_id_2, pool_mapping_id;
 inline struct ibv_mr* return_shm_mr(size_t idx);

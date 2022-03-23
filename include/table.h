@@ -355,10 +355,10 @@ struct midd_key_tail
 
 #define VALUE_HEADER_LEN    (sizeof(struct midd_value_header))
 #define VALUE_TAIL_LEN      (sizeof(struct midd_value_tail))
-#define KEY_HEADER_LEN      (sizeof(struct midd_key_tail))
+#define KEY_TAIL_LEN      (sizeof(struct midd_key_tail))
 #define VALUE_TAIL_ADDR(base, key_length, true_value_length) (base + key_length + VALUE_HEADER_LEN + true_value_length)
 #define VALUE_START_ADDR(base, key_length) (base + key_length + VALUE_HEADER_LEN)
-#define WARPPER_KEY_LEN(true_key_len) (true_key_len + KEY_HEADER_LEN)
+#define WARPPER_KEY_LEN(true_key_len) (true_key_len + KEY_TAIL_LEN)
 #define WARPPER_VALUE_LEN(true_value_len) (VALUE_HEADER_LEN + true_value_len + VALUE_TAIL_LEN)
 struct mehcached_item * 
 find_item(struct mehcached_table *table, uint64_t key_hash, const uint8_t* key, size_t key_length);
@@ -377,7 +377,7 @@ void value_get_true_value(uint8_t*true_value, uint8_t* value, size_t value_lengt
 
 #define GET_TRUE_VALUE_ADDR(value) ( (uint8_t*)value +  VALUE_HEADER_LEN)
 #define GET_TRUE_VALUE_LEN(value_length) (value_length - VALUE_HEADER_LEN - VALUE_TAIL_LEN)
-#define GET_TRUE_KEY_LEN(key_length) (key_length - KEY_HEADER_LEN)
+#define GET_TRUE_KEY_LEN(key_length) (key_length - KEY_TAIL_LEN)
 
 extern struct mehcached_table *main_table;
 extern struct mehcached_table *log_table;

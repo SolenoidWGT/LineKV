@@ -16,7 +16,6 @@ struct list_head nic_send_list[PARTITION_MAX_NUMS];
 uint64_t work_nums[PARTITION_MAX_NUMS];
 static volatile uint64_t nic_sendQ_lock[PARTITION_MAX_NUMS];
 
-
 static void memory_barrier();
 volatile bool nic_thread_ready = false;
 
@@ -48,7 +47,7 @@ nic_sending_queue_unlock(int lock_id)
 
 // 将发送请求加入到发送链表后就返回，不会阻塞主线程
 void
-makeup_update_request(struct mehcached_item * item, uint64_t item_offset, const uint8_t *value, uint32_t value_length, size_t tag)
+makeup_update_request(struct mehcached_item * item, uint64_t item_offset, const uint8_t *value, uint32_t value_length, size_t tag, int partition_id)
 {
     Assert(!IS_TAIL(server_instance->server_type));
     Assert(!IS_MIRROR(server_instance->server_type));
@@ -74,7 +73,7 @@ makeup_update_request(struct mehcached_item * item, uint64_t item_offset, const 
     up_req->write_info.remote_addr = item->remote_value_addr;
     up_req->item_offset = item_offset;
     up_req->item = item;
-    up_req->partition_id = (uint16_t)(item->key_hash >> 48) & (uint16_t)(PARTITION_NUMS  - 1);
+    up_req->partition_id = partition_id;
     up_req->tag = tag;
 
     while(nic_thread_ready == false);
@@ -84,11 +83,11 @@ makeup_update_request(struct mehcached_item * item, uint64_t item_offset, const 
 #else
     nic_partition_id = 0;
 #endif
-    nic_sending_queue_lock(nic_partition_id);
-    // memory_barrier();
-    list_add(&up_req->sending_list,  &nic_send_list[nic_partition_id]);
-    work_nums[nic_partition_id]++;
-    nic_sending_queue_unlock(nic_partition_id);
+    // nic_sending_queue_lock(nic_partition_id);
+    // // memory_barrier();
+    // list_add(&up_req->sending_list,  &nic_send_list[nic_partition_id]);
+    // work_nums[nic_partition_id]++;
+    // nic_sending_queue_unlock(nic_partition_id);
 
     // INFO_LOG("Node [%d] add send list", server_instance->server_id);
 }
@@ -96,7 +95,7 @@ makeup_update_request(struct mehcached_item * item, uint64_t item_offset, const 
 // NIC 只负责发送数据部分
 void * main_node_nic_thread(void * args)
 {
-    int partition_id = (int) args;
+    int partition_id = (int) (uintptr_t)args;
     int i;
 
     if (partition_id == 0)
@@ -143,15 +142,15 @@ void * main_node_nic_thread(void * args)
             //INFO_LOG("NIC send remote_addr %lu", send_req->write_info.remote_addr);
             void * key = item_get_key_addr(send_req->item);
 
-            re = dhmp_rdma_write_packed(&send_req->write_info);
-            if (re == -1)
-            {
-                ERROR_LOG("NIC dhmp_rdma_write_packed error!,exit");
-                Assert(false);
-            }
+            // re = dhmp_rdma_write_packed(&send_req->write_info);
+            // if (re == -1)
+            // {
+            //     ERROR_LOG("NIC dhmp_rdma_write_packed error!,exit");
+            //     Assert(false);
+            // }
             //增加一个双边操作用于通知，模仿 hyperloop 的行为
             // 这样就不需要轮询了
-            mica_replica_update_notify(send_req->item_offset, send_req->partition_id, send_req->tag);
+            // mica_replica_update_notify(send_req->item_offset, send_req->partition_id, send_req->tag);
 
             list_del(&send_req->sending_list);
 
@@ -176,7 +175,6 @@ void set_replica_node_thread_addr(void* (**p)(void*))
     *p = main_node_nic_thread;
 }
 
-// dhmp_mica_set_request_handler
 void resp_filter(struct dhmp_mica_set_request  * req_info)
 {
 	void * key_addr   = (void*)req_info->data;
