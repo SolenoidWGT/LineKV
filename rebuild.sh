@@ -1,5 +1,5 @@
 #!/bin/bash
-#export HOME='/home/gtwang'
+export TMP_DIR="`pwd`"
 if [ ! -f "./build" ];
 then
 rm -rf ./build
@@ -18,4 +18,6 @@ fi
 mkdir build &&
 cd build &&
 NDEBUG=no NLOCAL=no NCLIENT=yes NSERVER=yes cmake .. &&
-make
+make &&
+set -x &&
+chown -R gtwang "$TMP_DIR"/bin/*""
