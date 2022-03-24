@@ -31,6 +31,7 @@
 
 int used_id[MAX_PORT_NUMS];
 int used_nums = 0;
+bool is_ubuntu = false;
 
 static void dhmp_print_config ( struct dhmp_config* total_config_ptr )
 {
@@ -171,7 +172,7 @@ static int dhmp_parse_server_node ( struct dhmp_config* config_ptr, int index, x
 	return 0;
 }
 
-void dhmp_set_curnode_id ( struct dhmp_config* config_ptr)
+void dhmp_set_curnode_id ( struct dhmp_config* config_ptr, bool is_ubuntu)
 {
 	int socketfd, i, k, dev_num, j;
 	char buf[BUFSIZ];
@@ -181,6 +182,12 @@ void dhmp_set_curnode_id ( struct dhmp_config* config_ptr)
 	struct sockaddr_in* sin;
 	bool res=false;
 
+	if (is_ubuntu)
+	{
+		config_ptr->curnet_id = 3;
+		return;
+	}
+
 	socketfd = socket ( PF_INET, SOCK_DGRAM, 0 );
 	conf.ifc_len = BUFSIZ;
 	conf.ifc_buf = buf;
@@ -188,19 +195,19 @@ void dhmp_set_curnode_id ( struct dhmp_config* config_ptr)
 	ioctl ( socketfd, SIOCGIFCONF, &conf );
 	dev_num = conf.ifc_len / sizeof ( struct ifreq );
 	ifr = conf.ifc_req;
-
+	INFO_LOG("dev_num %d, config_ptr->nets_cnt %d", dev_num, config_ptr->nets_cnt);
 	for(k=0; k<config_ptr->nets_cnt; k++)
 	{
 		for ( i=0; i < dev_num; i++ )
 		{
 			sin = ( struct sockaddr_in* ) ( &ifr->ifr_addr );
-
 			ioctl ( socketfd, SIOCGIFFLAGS, ifr );
+			INFO_LOG ( "%s %s", ifr->ifr_name, inet_ntoa ( sin->sin_addr ) );
 			if ( ( ( ifr->ifr_flags & IFF_LOOPBACK ) == 0 ) && 
 					( ifr->ifr_flags & IFF_UP ) &&
 					( strcmp ( ifr->ifr_name, config_ptr->net_infos[k].nic_name ) ==0 ) )
 			{
-				INFO_LOG ( "%s %s", ifr->ifr_name, inet_ntoa ( sin->sin_addr ) );
+				INFO_LOG ( "Catch %s %s", ifr->ifr_name, inet_ntoa ( sin->sin_addr ) );
 				addr=inet_ntoa ( sin->sin_addr );
 				break;
 			}
@@ -247,7 +254,7 @@ void dhmp_set_curnode_id ( struct dhmp_config* config_ptr)
 	}
 }
 
-int dhmp_config_init ( struct dhmp_config* config_ptr, bool is_client )
+int dhmp_config_init ( struct dhmp_config* config_ptr, bool is_client)
 {
 	const char* config_file;
 	int index=0;
@@ -302,7 +309,7 @@ int dhmp_config_init ( struct dhmp_config* config_ptr, bool is_client )
 	dhmp_print_config ( config_ptr );
 	xmlFreeDoc ( config_doc );
 	if ( !is_client )
-		dhmp_set_curnode_id ( config_ptr );
+		dhmp_set_curnode_id ( config_ptr , is_ubuntu);
 	return 0;
 
 cleandoc:

@@ -48,5 +48,9 @@ mica_set_remote(uint8_t current_alloc_id,  uint64_t key_hash, const uint8_t *key
 				size_t target_id,
 				bool is_update,
 				size_t self_node_id,
-				size_t tag);
+				size_t tag,
+				bool re_use_datagram,
+				void* req_base,
+				size_t __total_length,
+				size_t partition_id);
 #endif

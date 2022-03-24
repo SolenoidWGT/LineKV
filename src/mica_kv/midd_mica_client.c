@@ -26,10 +26,6 @@
 
 bool ica_cli_get(struct test_kv *kv_entry, void *user_buff, size_t *out_value_length, size_t target_id, size_t tag);
 struct test_kv * kvs;
-int __test_size;
-int __access_num=0;
-int read_num, update_num;
-enum WORK_LOAD_DISTRIBUTED workload_type;
  
 
 struct dhmp_client *  
@@ -102,7 +98,7 @@ Get_Retry:
     }
 
     // 释放接受缓冲区,此时该块缓冲区就可以被其他的任务可见
-    dhmp_post_recv(resp->trans_data.rdma_trans, resp->trans_data.msg->data - sizeof(enum dhmp_msg_type) - sizeof(size_t));
+    dhmp_post_recv(resp->trans_data.rdma_trans, resp->trans_data.msg->data - sizeof(enum dhmp_msg_type) - sizeof(size_t), PARTITION_NUMS);
     // 释放所有指针
     free(container_of(&(resp->trans_data.msg->data), struct dhmp_msg , data));
     free(reuse_ptrs.req_base_ptr);
@@ -114,15 +110,15 @@ Get_Retry:
 // 1：1
 void workloada()
 {
-	int i = 0, j;
+	int i = 0, j, k;
     size_t idx;
-    struct timespec start_t, end_t;
-    long long int set_time=0, get_time=0;
+    struct timespec start_t, start_through, end_t, end_through;
+    long long int set_time=0, get_time=0, through_time=0;
     int __read_num = read_num;
     int __update_num = update_num;
     int suiji;
 
-    // 生成Zipfian数据
+    struct set_requset_pack req_callback_ptr[PARTITION_MAX_NUMS];	
     switch (workload_type)
     {
         case UNIFORM:
@@ -139,62 +135,74 @@ void workloada()
 
     size_t out_value_length;
     bool is_update=false;   // is_update 这个参数是不生效的，不会对其进行检查
-	for(;i < ACCESS_NUM ;i++)
+    clock_gettime(CLOCK_MONOTONIC, &start_through);	
+	for(i=0;i < ACCESS_NUM ;)
 	{
-		j = i % TEST_KV_NUM;
-        idx = (size_t)rand_num[j];
-		srand((unsigned int)i);
-		suiji = rand()%(__read_num+__update_num);
-        size_t suiji_node = (size_t) (rand()%(client_mgr->config.nets_cnt - 2));  // 只从副本节点读取
-		{
-			if(suiji < __read_num)
-			{
-				__read_num--;
-                out_value_length = kvs[idx].true_value_length + VALUE_HEADER_LEN + VALUE_TAIL_LEN;
-                INFO_LOG("read from node [%ld], tag is [%ld]", suiji_node, idx);
-				// addr_table_read(addr_table[rand_num[j]],local_buf);
-                clock_gettime(CLOCK_MONOTONIC, &start_t);	
-                mica_cli_get(&kvs[idx], \
-                              kvs[idx].get_value[0], \
-                              &out_value_length, \
-                              suiji_node, \
-                              idx);
-                clock_gettime(CLOCK_MONOTONIC, &end_t);	
-                get_time += (((end_t.tv_sec * 1000000000) + end_t.tv_nsec) - ((start_t.tv_sec * 1000000000) + start_t.tv_nsec)); 
-			}
-			else
-			{
-				__update_num --;
-				// addr_table_update(addr_table[rand_num[j]],local_buf);
-                INFO_LOG("set tag is [%ld]", idx);
-                clock_gettime(CLOCK_MONOTONIC, &start_t);	
-                mica_set_remote_warpper(0, 
-                                        kvs[idx].key,
-                                        kvs[idx].key_hash, 
-                                        kvs[idx].true_key_length, 
-                                        kvs[idx].value,
-                                        kvs[idx].true_value_length, 
-                                        0, true,
-                                        false, 
-                                        NULL,
-                                        MAIN,
-                                        is_update,
-                                        client_mgr->self_node_id,
-                                        (size_t)idx);
-                clock_gettime(CLOCK_MONOTONIC, &end_t);	
-                set_time += (((end_t.tv_sec * 1000000000) + end_t.tv_nsec) - ((start_t.tv_sec * 1000000000) + start_t.tv_nsec)); 
-			}
-		}
+        int p;
+        for (p=0, k=0; k<(int)PARTITION_NUMS && i<ACCESS_NUM; k++, i++, p++)
+        {
+            j = i % TEST_KV_NUM;
+            idx = (size_t)rand_num[j];
+            srand((unsigned int)i);
+            suiji = rand()%(__read_num+__update_num);
+            size_t suiji_node = (size_t) (rand()%(client_mgr->config.nets_cnt - 2));  // 只从副本节点读取
+            {
+                if(suiji < __read_num)
+                {
+                    __read_num--;
+                    out_value_length = kvs[idx].true_value_length + VALUE_HEADER_LEN + VALUE_TAIL_LEN;
+                    INFO_LOG("read from node [%ld], tag is [%ld]", suiji_node, idx);
+                    // addr_table_read(addr_table[rand_num[j]],local_buf);
+                    clock_gettime(CLOCK_MONOTONIC, &start_t);	
+                    mica_cli_get(&kvs[idx], \
+                                kvs[idx].get_value[0], \
+                                &out_value_length, \
+                                suiji_node, \
+                                idx);
+                    clock_gettime(CLOCK_MONOTONIC, &end_t);	
+                    get_time += (((end_t.tv_sec * 1000000000) + end_t.tv_nsec) - ((start_t.tv_sec * 1000000000) + start_t.tv_nsec)); 
+                }
+                else
+                {
+                    __update_num --;
+                    // addr_table_update(addr_table[rand_num[j]],local_buf);
+                    INFO_LOG("set tag is [%ld], left update nums [%d]", idx, __update_num);
+                    clock_gettime(CLOCK_MONOTONIC, &start_t);	
+                    mica_set_remote_warpper(0, 
+                                            kvs[idx].key,
+                                            kvs[idx].key_hash, 
+                                            kvs[idx].true_key_length, 
+                                            kvs[idx].value,
+                                            kvs[idx].true_value_length, 
+                                            0, true,
+                                            true, 
+                                            &req_callback_ptr[k],
+                                            MAIN,
+                                            is_update,
+                                            client_mgr->self_node_id,
+                                            (size_t)i);
+                    clock_gettime(CLOCK_MONOTONIC, &end_t);	
+                    set_time += (((end_t.tv_sec * 1000000000) + end_t.tv_nsec) - ((start_t.tv_sec * 1000000000) + start_t.tv_nsec)); 
+                }
+            }
 
-        if (i % 1000 == 0)
-            ERROR_LOG("Count [%d]", i);
+            if (i % 1000 == 0)
+                ERROR_LOG("Count [%d]", i);
+        }
+    
+        for (k=0; k<p; k++)
+        {
+            while(!req_callback_ptr[k].req_ptr->done_flag);
+        }
 	}
-
+    clock_gettime(CLOCK_MONOTONIC, &end_through);	
+    through_time = (((end_through.tv_sec * 1000000000) + end_through.tv_nsec) - ((start_through.tv_sec * 1000000000) + start_through.tv_nsec)); 
     if (read_num!=0)
         ERROR_LOG("workloada test FINISH! avg get time is [%ld]us",  get_time /( US_BASE * read_num));
     if (update_num!=0)
         ERROR_LOG("workloada test FINISH! avg set time is [%ld]us",  set_time /( US_BASE * update_num));
 
+    ERROR_LOG("set count [%d] get count [%d] total use [%ld] us ", read_num, update_num, through_time/1000);
 }
 
 void debug_test()
@@ -290,7 +298,7 @@ int main(int argc,char *argv[])
         }
         else if (i==2)
         {
-            __partition_nums = atoi(argv[i]);
+            __partition_nums = (unsigned long long)atoi(argv[i]);
             Assert(__partition_nums >0 && __partition_nums < PARTITION_MAX_NUMS);
             INFO_LOG(" __partition_nums is [%d]", __partition_nums);
         }
@@ -369,9 +377,9 @@ int main(int argc,char *argv[])
     }
 
     // kvs = generate_test_data(1, 1, 1024-VALUE_HEADER_LEN-VALUE_TAIL_LEN, TEST_KV_NUM, (size_t)client_mgr->config.nets_cnt);
-    kvs = generate_test_data(1, 1, __test_size , TEST_KV_NUM, (size_t)client_mgr->config.nets_cnt);
+    kvs = generate_test_data(1, 1, (size_t)__test_size , TEST_KV_NUM);
 
     workloada();
-
+    sleep(100);
     return 0;
 }

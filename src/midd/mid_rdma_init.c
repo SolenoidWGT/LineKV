@@ -101,12 +101,6 @@ dhmp_connect(int peer_node_id)
 		else if(conn->trans_state == DHMP_TRANSPORT_STATE_CONNECTED )
 		{
 			conn->is_active = true;
-			// struct ibv_port_attr port_info;
-			// int re = ibv_query_port(dhmp_get_dev_from_client()->verbs, ntohs(rdma_get_src_port(conn->cm_id)), &port_info);
-			// if (re == -1)
-			// 	ERROR_LOG("retrieves ibv_query_port error!");
-			// else
-			// 	INFO_LOG("Client port [%u] max message legnth is [%u].",ntohs(rdma_get_src_port(conn->cm_id)), port_info.max_msg_sz);
 			break;
 		}
 	}
@@ -195,26 +189,6 @@ struct dhmp_client *  dhmp_client_init(size_t buffer_size, bool is_mica_cli)
 				client_mgr->read_mr[i] = init_read_mr(buffer_size, client_mgr->connect_trans[i]->device->pd);
 			}
 		}
-#ifndef STAR
-		// 排除集群中只有一个副本节点的情况
-		if(IS_REPLICA(server_instance->server_type) && 
-				server_instance->node_nums > 3 &&
-				server_instance->server_id != server_instance->node_nums-1)
-		{
-			// 中间节点需要主动和下游节点建立rdma连接，只有下游节点是中间节点的server
-			int next_id = server_instance->server_id+1;
-			client_mgr->connect_trans[next_id] = dhmp_connect(next_id);
-
-			if(!client_mgr->connect_trans[next_id]){
-				ERROR_LOG("create the [%d]-th transport error.",next_id);
-				exit(0);
-			}
-
-			client_mgr->connect_trans[next_id]->is_active = true;
-			client_mgr->connect_trans[next_id]->node_id = next_id;
-			client_mgr->read_mr[next_id] = init_read_mr(buffer_size, client_mgr->connect_trans[next_id]->device->pd);	
-		}
-#endif
 	}
 
 	/* 初始化client段全局对象 */
@@ -243,7 +217,7 @@ struct dhmp_server * dhmp_server_init(size_t server_id)
 		ERROR_LOG("allocate memory error.");
 		return NULL;
 	}
-
+	memset(server_instance, 0, sizeof(struct dhmp_server));
 	for (i=0; i<MAX_CQ_NUMS; i++)
 		server_instance->ctx.stop_flag[i] = true;
 
@@ -289,31 +263,11 @@ struct dhmp_server * dhmp_server_init(size_t server_id)
 					(unsigned int)server_instance->config.net_infos[server_instance->config.curnet_id].port);
 
 			server_instance->server_id = server_instance->config.curnet_id;
-#ifndef STAR
-			if (server_instance->config.nets_cnt < 3)
-			{
-				ERROR_LOG("Too few nodes to start system, at least node num is [3], now is [%d], exit!", \
-						server_instance->config.nets_cnt);
-				exit(0);
-			}
-#endif
 			if (server_instance->server_id == 0)
 				SET_MAIN(server_instance->server_type);
 			else
 				SET_MIRROR(server_instance->server_type);			
 
-#ifndef STAR
-			// 尾节点单独 set 标志位
-			if (server_instance->server_id == server_instance->node_nums - 1)
-			{
-				SET_TAIL(server_instance->server_type);
-				INFO_LOG("Tail Node server_id is [%d] ", server_instance->server_id);
-			}
-			
-			// 非主节点的头副本节点
-			if (server_instance->server_id == 2)
-				SET_HEAD(server_instance->server_type);
-#endif
 			MID_LOG("Server's node id is [%d], node_nums is [%d], server_type is %d", \
 					server_instance->server_id, server_instance->node_nums, server_instance->server_type);
 			break;
@@ -321,7 +275,7 @@ struct dhmp_server * dhmp_server_init(size_t server_id)
 		else
 		{
 			used_id[used_nums++] = server_instance->config.curnet_id;
-			dhmp_set_curnode_id ( &server_instance->config );
+			dhmp_set_curnode_id ( &server_instance->config, is_ubuntu);
 		}
 	}
 

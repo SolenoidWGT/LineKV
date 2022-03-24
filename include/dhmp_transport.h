@@ -8,8 +8,8 @@
 #define ADDR_RESOLVE_TIMEOUT 500
 #define ROUTE_RESOLVE_TIMEOUT 500
 
-#define RECV_REGION_SIZE (1024*1024*1024)
-#define SEND_REGION_SIZE (1024*1024*1024)
+#define RECV_REGION_SIZE (16*1024*1024)
+#define SEND_REGION_SIZE (16*1024*1024)
 
 // #define SINGLE_POLL_RECV_REGION_KV (64*1024)
 // #define SINGLE_NORM_RECV_REGION_KV (64*1024)
@@ -17,8 +17,8 @@
 /*recv region include poll recv region,normal recv region*/
 // 由于我们初始化时候需要交换大量的注册地址信息，目前只是通过一个 send/recv 完成，如果
 // recv_region 太小，就会报 IBV_WC_LOC_LEN_ERR (1) - Local Length Error 的错误
-#define SINGLE_POLL_RECV_REGION (8*1024*1024)
-#define SINGLE_NORM_RECV_REGION (8*1024*1024)
+#define SINGLE_POLL_RECV_REGION (64*1024)
+#define SINGLE_NORM_RECV_REGION (64*1024)
 
 
 void dhmp_wc_recv_handler(struct dhmp_transport* rdma_trans, struct dhmp_msg* msg, bool *is_async);
@@ -44,7 +44,7 @@ struct dhmp_cq{
 	struct ibv_cq	*cq;
 	struct ibv_comp_channel	*comp_channel;
 	struct dhmp_device *device;
-
+	
 	/*add the fd of comp_channel into the ctx*/
 	struct dhmp_context *ctx;
 	bool * stop_flag_ptr;
@@ -70,8 +70,8 @@ struct dhmp_transport{
 	struct rdma_cm_id	*cm_id;
 
 	/*the var use for two sided RDMA*/
-	struct dhmp_mr send_mr;
-	struct dhmp_mr recv_mr;
+	struct dhmp_mr send_mr[PARTITION_MAX_NUMS+1];
+	struct dhmp_mr recv_mr[PARTITION_MAX_NUMS+1];
 	
 	bool is_poll_qp;
 	struct dhmp_transport *link_trans;
@@ -116,7 +116,7 @@ int dhmp_transport_connect(struct dhmp_transport* rdma_trans,
 int dhmp_transport_listen(struct dhmp_transport* rdma_trans, int listen_port);
 
 
-void dhmp_post_send(struct dhmp_transport* rdma_trans, struct dhmp_msg* msg_ptr);
+void dhmp_post_send(struct dhmp_transport* rdma_trans, struct dhmp_msg* msg_ptr, size_t partition_id);
 
 
 /**
@@ -124,7 +124,7 @@ void dhmp_post_send(struct dhmp_transport* rdma_trans, struct dhmp_msg* msg_ptr)
  */
 void dhmp_post_all_recv(struct dhmp_transport *rdma_trans);
 
-void dhmp_post_recv(struct dhmp_transport* rdma_trans, void *addr);
+void dhmp_post_recv(struct dhmp_transport* rdma_trans, void *addr, size_t partition_id);
 
 
 

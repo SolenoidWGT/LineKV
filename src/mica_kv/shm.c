@@ -233,16 +233,8 @@ mehcached_shm_schedule_remove(size_t entry_id)
  */
 size_t
 mehcached_shm_map(size_t entry_id, void *ptr, void ** bucket_ptr, 
-					size_t offset, size_t length, bool table_init MEHCACHED_UNUSED)
+				  size_t offset, size_t length, bool table_init MEHCACHED_UNUSED)
 {
-	// ptr 的起始地址必须和 page 大小对齐
-	if (((size_t)ptr & ~(mehcached_shm_page_size - 1)) != (size_t)ptr)
-	{
-		ERROR_LOG("invalid ptr alignment");
-		exit(0);
-		return (size_t)-1;
-	}
-
 	// offset 也必须要和 page 大小对齐
 	if ((offset & ~(mehcached_shm_page_size - 1)) != offset)
 	{
@@ -276,29 +268,69 @@ mehcached_shm_map(size_t entry_id, void *ptr, void ** bucket_ptr,
 	// map
 	void *p = ptr;
 	size_t page_index = page_offset;
-	// size_t page_index_end = page_offset + num_pages;
+	//size_t page_index_end = page_offset + num_pages;
 	int error = 0;
 
-    size_t total_alloc_pages = mehcached_shm_page_size * num_pages;
+	size_t total_alloc_pages = mehcached_shm_page_size * num_pages;
+
+	// 我们不适用大页块设备，直接在虚拟地址里面进行映射
+/*
+	while (page_index < page_index_end)
+	{
+		void *ret_p = mmap(p, mehcached_shm_page_size, PROT_READ | PROT_WRITE,  MAP_FIXED | MAP_ANONYMOUS, -1, 0);
+		if (ret_p == MAP_FAILED)
+		{
+			ERROR_LOG("page_index: is [%ld], p is [%p], mehcached_shm_page_size is [%ld] mode is [%ld]",page_index,  p, mehcached_shm_page_size, (size_t)p%mehcached_shm_page_size);
+			ERROR_LOG("failed: %d (%s)\n",  errno, strerror(errno));
+			ERROR_LOG("mmap failed at %p", p);
+			exit(-1);
+		}
+
+		page_index++;
+		p = (void *)((size_t)p + mehcached_shm_page_size);
+	}
+*/
+/*
+	void *ret_p = mmap(p, total_alloc_pages, PROT_READ | PROT_WRITE,  MAP_ANONYMOUS, -1, 0);
+	if (ret_p == MAP_FAILED)
+	{
+		ERROR_LOG("page_index: is [%ld], p is [%p], mehcached_shm_page_size is [%ld] mode is [%ld]",page_index,  p, total_alloc_pages, (size_t)p%total_alloc_pages);
+		ERROR_LOG("failed: %d (%s)\n",  errno, strerror(errno));
+		ERROR_LOG("mmap failed at %p", p);
+		exit(-1);
+	}
+	p=ret_p;	
+*/
     // 映射到匿名的地址空间上去
-    // void *ret_p = mmap(p, total_alloc_pages, PROT_READ | PROT_WRITE,  MAP_FIXED | MAP_ANONYMOUS, -1, 0);
-	void * ret_p = malloc(total_alloc_pages);
-	p = ret_p;
-	*bucket_ptr = ret_p;
+	// void * ret_p = malloc(total_alloc_pages);
+	// *bucket_ptr = ret_p;
+	// p=ret_p;
+
+	int ret = posix_memalign(bucket_ptr, mehcached_shm_page_size, total_alloc_pages);
+	if (ret != 0)
+	{
+		ERROR_LOG("page_index: is [%ld], p is [%p], mehcached_shm_page_size is [%ld] mode is [%ld]",page_index,  p, total_alloc_pages, (size_t)p%total_alloc_pages);
+		ERROR_LOG("failed: %d (%s)\n",  errno, strerror(errno));
+		ERROR_LOG("mmap failed at %p", p);
+		exit(-1);	
+	}
+	p=(*bucket_ptr);
+
+	// 把对齐检查放在 posix_memalign 之后
+	// ptr 的起始地址必须和 page 大小对齐
+	if (((size_t)p & ~(mehcached_shm_page_size - 1)) != (size_t)p)
+	{
+		ERROR_LOG("invalid ptr alignment, p is [%p], mehcached_shm_page_size is [%ld]",p ,mehcached_shm_page_size);
+		exit(0);
+		return (size_t)-1;
+	}
 
 	used_mapping_nums++;	// 增加计数
-
-    if (ret_p == MAP_FAILED)
-    {
-        ERROR_LOG("mmap failed at %p", p);
-        error = 1;
-    }
-
 	if (error)
 	{
 		// clean partialy mapped memory
 		p = ptr;
-		size_t page_index_clean = page_offset;
+		size_t page_index_clean = page_offset;	
 		while (page_index_clean < page_index)
 		{
 			munmap(p, mehcached_shm_page_size);
@@ -310,35 +342,11 @@ mehcached_shm_map(size_t entry_id, void *ptr, void ** bucket_ptr,
 		return (size_t)-1;
 	}
 
-#ifndef STAR
-	#ifdef USE_RDMA
-		if (!IS_MAIN(server_instance->server_type) /* && table_init == false*/)
-		{
-			struct dhmp_device * dev = dhmp_get_dev_from_server();
-			struct ibv_mr * mr=ibv_reg_mr(dev->pd, p, total_alloc_pages, 
-											IBV_ACCESS_LOCAL_WRITE|
-											IBV_ACCESS_REMOTE_READ|
-											IBV_ACCESS_REMOTE_WRITE|
-											IBV_ACCESS_REMOTE_ATOMIC);
-			if(!mr)	
-			{
-				ERROR_LOG("rdma register memory error. register mem length is [%u], error number is [%d], reason is \"%s\"", \
-									total_alloc_pages, errno, strerror(errno));
-				mehcached_shm_unlock();
-				Assert(false);
-			}
-
-			mehcached_shm_mappings[mapping_id].mr = mr;
-		}
-		else
-			mehcached_shm_mappings[mapping_id].mr = NULL;
-	#endif
-#endif
 	// register mapping
 	mehcached_shm_used_memory += num_pages * mehcached_shm_page_size;
 
 	mehcached_shm_mappings[mapping_id].entry_id = entry_id;
-	mehcached_shm_mappings[mapping_id].addr = ret_p;
+	mehcached_shm_mappings[mapping_id].addr = ptr;
 	mehcached_shm_mappings[mapping_id].length = length;
 	mehcached_shm_mappings[mapping_id].page_offset = page_offset;
 	mehcached_shm_mappings[mapping_id].num_pages = num_pages;

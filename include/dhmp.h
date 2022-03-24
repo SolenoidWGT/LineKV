@@ -148,7 +148,13 @@ enum response_state
 struct dhmp_msg{
 	enum dhmp_msg_type msg_type;
 	size_t data_size;		// 整个报文的长度（包含 post_datagram header）
+
+	// 下面的数据不会参与到网络传输中
 	void *data;
+	// 多线程任务下发
+	struct list_head list_anchor;
+	struct dhmp_transport * trans;
+	int recv_partition_id;
 };
 
 /*struct dhmp_addr_info is the addr struct in cluster*/
@@ -448,10 +454,16 @@ typedef struct distrubute_job_thread_init_data
 
 
 extern bool is_single_thread;
-extern int test_size;
+extern int thread_num;
+extern int __test_size;
 #define STAR
 
 #define MAX_CQ_NUMS 10
-void busy_wait_cq_handler(void* data);
+void *busy_wait_cq_handler(void* data);
 
+void dhmp_send_request_handler(struct dhmp_transport* rdma_trans,
+									struct dhmp_msg* msg, 
+									bool * is_async);
+
+#define THROUGH_TEST
 #endif

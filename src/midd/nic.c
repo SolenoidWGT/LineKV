@@ -94,7 +94,7 @@ makeup_update_request(struct mehcached_item * item, uint64_t item_offset, const 
 // NIC 只负责发送数据部分
 void * main_node_nic_thread(void * args)
 {
-    int partition_id = (int) args;
+    int partition_id = (int) (uintptr_t)args;
     int i;
 
     if (partition_id == 0)

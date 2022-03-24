@@ -10,7 +10,7 @@
 #include "dhmp_client.h"
 #include "dhmp_log.h"
 #include "dhmp_dev.h"
-
+#include "dhmp_server.h"
 
 /**
  *	the success work completion handler function
@@ -25,12 +25,16 @@ static void dhmp_wc_success_handler(struct ibv_wc* wc)
 	struct dhmp_msg *msg;
 	// 由于我们异步化了 wc 处理，所以必须把 msg 变成堆上内存而不是栈中内存。
 	// struct dhmp_msg msg;
+	struct post_datagram *req_datagram;
 	
 	bool is_async = false;
+	size_t peer_partition_id = (size_t)-1;
+	int recv_partition_id;
 	DEFINE_STACK_TIMER();
 
 	task_ptr=(struct dhmp_task*)(uintptr_t)wc->wr_id;
 	rdma_trans=task_ptr->rdma_trans;
+	recv_partition_id= task_ptr->partition_id;
 
 	switch(wc->opcode)
 	{
@@ -41,18 +45,23 @@ static void dhmp_wc_success_handler(struct ibv_wc* wc)
 			/*read the msg content from the task_ptr sge addr*/
 			msg->msg_type=*(enum dhmp_msg_type*)task_ptr->sge.addr;
 			msg->data_size=*(size_t*)(task_ptr->sge.addr+sizeof(enum dhmp_msg_type));
-			msg->data=task_ptr->sge.addr+sizeof(enum dhmp_msg_type)+sizeof(size_t);
-			
-			MICA_TIME_COUNTER_INIT();
+			msg->data= task_ptr->sge.addr + sizeof(enum dhmp_msg_type) + sizeof(size_t);
+			// 以下数据不会从报文中获取
+			INIT_LIST_HEAD(&msg->list_anchor);
+			msg->trans = rdma_trans;
+			msg->recv_partition_id = recv_partition_id;
+
+			//MICA_TIME_COUNTER_INIT();
+			clock_gettime(CLOCK_MONOTONIC, &start);
 			dhmp_wc_recv_handler(rdma_trans, msg, &is_async);
 			// dhmp_post_recv 需要放到多线程的末尾去处理
 			// 发送双边操作的数据大小不能超过  SINGLE_NORM_RECV_REGION （16MB）
 			if (! is_async)
 			{
-				dhmp_post_recv(rdma_trans, task_ptr->sge.addr);
+				dhmp_post_recv(rdma_trans, task_ptr->sge.addr, recv_partition_id);
 				free(msg);
 			}
-			MICA_TIME_COUNTER_CAL("dhmp_wc_recv_handler");
+			//MICA_TIME_COUNTER_CAL("dhmp_wc_recv_handler");
 			break;
 		case IBV_WC_RDMA_WRITE:
 #ifdef DHMP_MR_REUSE_POLICY
@@ -142,7 +151,7 @@ void dhmp_comp_channel_handler(struct dhmp_cq* dcq)
 	}
 }
 
-void busy_wait_cq_handler(void* data)
+void* busy_wait_cq_handler(void* data)
 {
 	struct dhmp_cq* dcq = (struct dhmp_cq* )data;
 	dhmp_comp_channel_handler(dcq);

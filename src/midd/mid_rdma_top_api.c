@@ -11,8 +11,8 @@
 #include "mid_rdma_utils.h"
 #include "dhmp_top_api.h"
 
-static bool 
-dhmp_post_send_info(size_t target_id, void * data, size_t length, struct dhmp_transport *specify_trans);
+bool 
+dhmp_post_send_info(size_t target_id, void * data, size_t length, struct dhmp_transport *specify_trans, size_t parttion_id);
 
 struct dhmp_transport* 
 dhmp_get_trans_from_addr(void *dhmp_addr)
@@ -25,47 +25,9 @@ dhmp_get_trans_from_addr(void *dhmp_addr)
 void
 micaserver_get_cliMR(struct replica_mappings  *resp_mapping_ptr, size_t target_id)
 {
-	void * base;
-	struct post_datagram *req_msg;
-	struct dhmp_mica_get_cli_MR_request *req_data;
-	size_t total_length = 0;
-	bool re;
-
-	// size_t target_id = server_instance->server_id + 1;
-	// Assert(target_id != server_instance->node_nums);
-
-	// 构造报文
-	total_length = DATAGRAM_ALL_LEN(sizeof(struct dhmp_mica_get_cli_MR_request));
-	base = malloc(total_length); 
-	req_msg  = (struct post_datagram *) base;
-	req_data = (struct dhmp_mica_get_cli_MR_request *) DATA_ADDR(base, 0);
-
-	// 填充公共报文
-	req_msg->node_id = server_instance->server_id;	 // 向对端发送自己的 node_id 用于身份辨识
-	req_msg->req_ptr = req_msg;
-	req_msg->resp_ptr = NULL;
-	req_msg->done_flag = false;
-	req_msg->info_type = MICA_GET_CLIMR_REQUEST;
-	req_msg->info_length = sizeof(struct dhmp_mica_get_cli_MR_request);
-
-	// 填充私有报文
-	req_data->info_revoke_ptr = resp_mapping_ptr;
-	INFO_LOG("resp_all_mapping_ptr is [%p]", resp_mapping_ptr);
-
-	if (!dhmp_post_send_info(target_id, base, total_length, NULL))
-	{
-		ERROR_LOG("POST_SEND ERROR! target_id is [%d], info_length is [%u]", target_id, total_length);
-		return;
-	}
-
-	DEFINE_STACK_TIMER();
-	MICA_TIME_COUNTER_INIT();
-	while(req_msg->done_flag == false)
-		MICA_TIME_LIMITED(0, 2*TIMEOUT_LIMIT_MS);
-	MICA_TIME_COUNTER_CAL("micaserver_get_cliMR");
-
-out:
-	free(base);
+	Assert(false);
+	resp_mapping_ptr;
+	target_id;
 	return;
 }
 
@@ -96,7 +58,7 @@ mica_basic_ack_req(size_t target_id, enum ack_info_type ack_type, bool block)
 	// 填充私有报文
 	req_data->ack_type = ack_type;
 
-	if (!dhmp_post_send_info(target_id, base, total_length, NULL))
+	if (!dhmp_post_send_info(target_id, base, total_length, NULL, PARTITION_NUMS))
 	{
 		ERROR_LOG("POST_SEND ERROR! target_id is [%d], info_length is [%u]", target_id, total_length);
 		return -1;
@@ -143,13 +105,13 @@ mica_ask_nodeID_req(struct dhmp_transport* new_rdma_trans)
 	// 填充私有报文
 	req_data->node_id = server_instance->server_id;
 
-	if (!dhmp_post_send_info(-1, base, total_length, new_rdma_trans))
+	if (!dhmp_post_send_info(-1, base, total_length, new_rdma_trans, PARTITION_NUMS))
 		return -1;
 
 	DEFINE_STACK_TIMER();
 	MICA_TIME_COUNTER_INIT();
 	while(req_msg->done_flag == false)
-		MICA_TIME_LIMITED(0, TIMEOUT_LIMIT_MS);
+		MICA_TIME_LIMITED(0, 20*TIMEOUT_LIMIT_MS);
 	MICA_TIME_COUNTER_CAL("mica_ask_nodeID_req");
 
 	result = req_data->node_id;
@@ -172,60 +134,70 @@ mica_set_remote(uint8_t current_alloc_id,  uint64_t key_hash, const uint8_t *key
 				size_t target_id,
 				bool is_update,
 				size_t self_node_id,
-				size_t tag)
+				size_t tag,
+				bool re_use_datagram,
+				void* req_base,
+				size_t __total_length,
+				size_t __partition_id)
 {
 	void * base;
-	void * data_addr;
 	struct post_datagram *req_msg;
 	struct dhmp_mica_set_request *req_data;
 	size_t total_length = 0;
-	size_t re_mapping_id;
+	size_t re_mapping_id=0;
 	int partition_id;
 
-	// HexDump((char*)key, (int) (key_length + value_length), (size_t)key);
+	if (!re_use_datagram)
+	{
+		// 构造报文
+		if (target_id == MIRROR_NODE_ID || target_id == MAIN_NODE_ID)
+			total_length = sizeof(struct post_datagram) + sizeof(struct dhmp_mica_set_request) + key_length + value_length;
+		else
+			total_length = sizeof(struct post_datagram) + sizeof(struct dhmp_mica_set_request) + key_length;
+		
+		base = malloc(total_length); 
+		// memset(base, 0 , total_length);
+		req_msg  = (struct post_datagram *) base;
+		req_data = (struct dhmp_mica_set_request *)((char *)base + sizeof(struct post_datagram));
 
-	// 构造报文
-	if (target_id == MIRROR_NODE_ID ||
-		target_id == MAIN_NODE_ID)
-		total_length = sizeof(struct post_datagram) + sizeof(struct dhmp_mica_set_request) + key_length + value_length;
+		// 填充公共报文
+		req_msg->node_id = self_node_id;	 // 向对端发送自己的 node_id 用于身份辨识
+		req_msg->req_ptr = req_msg;
+		req_msg->done_flag = false;
+		req_msg->info_type = MICA_SET_REQUEST;
+		req_msg->info_length = sizeof(struct dhmp_mica_set_request);
+
+		// 填充私有报文
+		req_data->current_alloc_id = current_alloc_id;
+		req_data->expire_time = expire_time;
+		req_data->key_hash = key_hash;
+		req_data->key_length = key_length;
+		req_data->value_length = value_length;	// 这里的 value 长度是包含了value头部和尾部的长度
+		req_data->overwrite = overwrite;
+		req_data->is_update = is_update;
+		req_data->tag = tag;
+		req_data->partition_id = (int) (*((size_t*)key)  % (PARTITION_NUMS));
+		memcpy(&(req_data->data), key, GET_TRUE_KEY_LEN(key_length));		// copy key
+
+		// 设置 partition id
+		Assert(req_data->partition_id>=0 && req_data->partition_id < PARTITION_NUMS);
+
+		if (target_id == MIRROR_NODE_ID || target_id == MAIN_NODE_ID)
+			memcpy(((char*)(&(req_data->data)) + key_length), value, GET_TRUE_VALUE_LEN(value_length));	// copy value, 注意这里拷贝不包含value的头部和尾部，所以需要远端节点自己进行元数据的更新
+
+		// 如果不是reuse，那么调用该函数的是客户端，客户端是单线程发送的
+		partition_id = PARTITION_NUMS;
+	}
 	else
-		total_length = sizeof(struct post_datagram) + sizeof(struct dhmp_mica_set_request) + key_length;
-	
-	base = malloc(total_length); 
-	// memset(base, 0 , total_length);
-	req_msg  = (struct post_datagram *) base;
-	req_data = (struct dhmp_mica_set_request *)((char *)base + sizeof(struct post_datagram));
+	{
+		Assert(is_async == true);
+		base = req_base;
+		total_length = __total_length;
+		partition_id = __partition_id;
+	}
 
-	// 填充公共报文
-	req_msg->node_id = self_node_id;	 // 向对端发送自己的 node_id 用于身份辨识
-	req_msg->req_ptr = req_msg;
-	req_msg->done_flag = false;
-	req_msg->info_type = MICA_SET_REQUEST;
-	req_msg->info_length = sizeof(struct dhmp_mica_set_request);
-
-	// 填充私有报文
-	req_data->current_alloc_id = current_alloc_id;
-	req_data->expire_time = expire_time;
-	req_data->key_hash = key_hash;
-	req_data->key_length = key_length;
-	req_data->value_length = value_length;	// 这里的 value 长度是包含了value头部和尾部的长度
-	req_data->overwrite = overwrite;
-	req_data->is_update = is_update;
-	req_data->tag = tag;
-	data_addr = (void*)req_data + offsetof(struct dhmp_mica_set_request, data);
-	memcpy(data_addr, key, key_length);		// copy key
-
-	// 设置 partition id
-	req_data->partition_id = (uint16_t)(key_hash >> 48) & (uint16_t)(PARTITION_NUMS  - 1);
-
-	Assert(req_data->partition_id>=0 && req_data->partition_id < PARTITION_NUMS);
-
-	if (target_id == MIRROR_NODE_ID ||
-		target_id == MAIN_NODE_ID)
-		memcpy(data_addr + key_length, value, GET_TRUE_VALUE_LEN(value_length));	// copy value, 注意这里拷贝不包含value的头部和尾部，所以需要远端节点自己进行元数据的更新
-
-	if (!dhmp_post_send_info(target_id, base, total_length, NULL))
-		return false;
+	if (!dhmp_post_send_info(target_id, base, total_length, NULL, partition_id))
+		return (size_t) -1;
 
 	if (is_async == false)
 	{
@@ -233,7 +205,7 @@ mica_set_remote(uint8_t current_alloc_id,  uint64_t key_hash, const uint8_t *key
 		MICA_TIME_COUNTER_INIT();
 		while(req_msg->done_flag == false)
 			MICA_TIME_LIMITED(tag, TIMEOUT_LIMIT_MS);
-		MICA_TIME_COUNTER_CAL("mica_set_remote");
+		//MICA_TIME_COUNTER_CAL("mica_set_remote");
 
 		if (req_data->is_success == false)
 		{
@@ -244,10 +216,11 @@ mica_set_remote(uint8_t current_alloc_id,  uint64_t key_hash, const uint8_t *key
 		re_mapping_id = req_data->out_mapping_id;
 		free(base);
 	}
-	else
+	else if (!re_use_datagram) // reuse 不需要使用 req_callback_ptr
 	{
 		req_callback_ptr->req_ptr = req_msg;
 		req_callback_ptr->req_info_ptr = req_data;
+		return (size_t) 0;
 	}
 
 	return re_mapping_id;
@@ -267,10 +240,10 @@ mica_set_remote_warpper(uint8_t current_alloc_id,
 {
 	return mica_set_remote(current_alloc_id, key_hash, 
 				no_header_key, 
-				true_key_length + KEY_HEADER_LEN, 
+				true_key_length + KEY_TAIL_LEN, 
 				no_header_value, 
 				VALUE_HEADER_LEN + true_value_length  + VALUE_TAIL_LEN,
-				expire_time, overwrite, is_async, req_callback_ptr, target_id,is_update, self_node_id, tag);
+				expire_time, overwrite, is_async, req_callback_ptr, target_id,is_update, self_node_id, tag, false, NULL, 0, PARTITION_NUMS);
 }
 
 void
@@ -325,25 +298,25 @@ mica_get_remote(uint8_t current_alloc_id,  uint64_t key_hash, const uint8_t *key
 	req_data->key_length = key_length;
 	req_data->get_resp = get_resp;
 	req_data->peer_max_recv_buff_length = expect_length;
-	req_data->partition_id = (uint16_t)(key_hash >> 48) & (uint16_t)(PARTITION_NUMS  - 1);
+	req_data->partition_id = (int) (*((size_t*)key)  % (PARTITION_NUMS));
 	req_data->tag = tag;
 	data_addr = (void*)req_data + offsetof(struct dhmp_mica_get_request, data);
-	memcpy(data_addr, key, key_length);		// copy key
+	memcpy(data_addr, key, GET_TRUE_KEY_LEN(key_length));		// copy key
 
-	if (!dhmp_post_send_info(target_id, base, total_length, NULL))
+	// 这个函数只有客户端会调用，所以是单线程
+	if (!dhmp_post_send_info(target_id, base, total_length, NULL, PARTITION_NUMS))
 	{
 		free(reuse_ptr->resp_ptr);
 		reuse_ptr->resp_ptr = NULL;
 		return;
 	}
-	INFO_LOG("Getting tag [%d] from node [%d]", tag ,target_id);
 
 	if (is_async == false)
 	{
 		DEFINE_STACK_TIMER();
 		MICA_TIME_COUNTER_INIT();
 		while(req_msg->done_flag == false)
-			MICA_TIME_LIMITED(tag, TIMEOUT_LIMIT_MS*10);
+			MICA_TIME_LIMITED(0, TIMEOUT_LIMIT_MS);
 		MICA_TIME_COUNTER_CAL("mica_get_remote");
 
 		// free(base);
@@ -370,7 +343,7 @@ mica_get_remote_warpper(uint8_t current_alloc_id,  uint64_t key_hash, const uint
 				struct dhmp_mica_get_reuse_ptr *reuse_ptrs)
 {
 	mica_get_remote(current_alloc_id,  key_hash, key, 
-				key_length + KEY_HEADER_LEN, 
+				key_length + KEY_TAIL_LEN, 
 				is_async, 
 				req_callback_ptr,
 				target_id,
@@ -383,61 +356,14 @@ mica_get_remote_warpper(uint8_t current_alloc_id,  uint64_t key_hash, const uint
 void 
 mica_replica_update_notify(uint64_t item_offset, int partition_id, int tag)
 {
-	Assert(!IS_TAIL(server_instance->server_type));
-	INFO_LOG("mica_replica_update_notify offset is [%ld]", item_offset);
-	void * base;
-	void * data_addr;
-	struct post_datagram *req_msg;
-	struct dhmp_update_notify_request *req_data;
-	size_t total_length = 0;
-	size_t target_id;
-
-	if (IS_MAIN(server_instance->server_type))
-		target_id = REPLICA_NODE_HEAD_ID;
-	else if (IS_REPLICA(server_instance->server_type))
-		target_id = server_instance->server_id + 1;
-	else
-		Assert(false);
-
-	// 构造报文
-	total_length = sizeof(struct post_datagram) + sizeof(struct dhmp_update_notify_request);
-	base = malloc(total_length); 
-	req_msg  = (struct post_datagram *) base;
-	req_data = (struct dhmp_update_notify_request *)((char *)base + sizeof(struct post_datagram));
-
-	// 填充公共报文
-	req_msg->node_id = server_instance->server_id;	 // 向对端发送自己的 node_id 用于身份辨识
-	req_msg->req_ptr = req_msg;
-	req_msg->done_flag = false;
-	req_msg->info_type = MICA_REPLICA_UPDATE_REQUEST;
-	req_msg->info_length = sizeof(struct dhmp_update_notify_request);
-
-	// 填充私有报文
-	req_data->item_offset = item_offset;
-	req_data->partition_id = partition_id;
-	req_data->tag = tag;
-
-	WARN_LOG("[mica_replica_update_notify] send tag [%ld]", tag);
-
-	if (!dhmp_post_send_info(target_id, base, total_length, NULL))
-	{
-		ERROR_LOG("Send failed!");
-		Assert(false);
-	}
-
-	// 我们不用等待下游 nic 的确认
-/*
-	DEFINE_STACK_TIMER();
-	MICA_TIME_COUNTER_INIT();
-	while(req_msg->done_flag == false)
-		MICA_TIME_LIMITED(tag, TIMEOUT_LIMIT_MS);
-	MICA_TIME_COUNTER_CAL("mica_replica_update_notify");
-*/
-	free(base);
+	Assert(false);
+	item_offset;
+	partition_id;
+	tag;
 }
 
 bool 
-dhmp_post_send_info(size_t target_id, void * data, size_t length, struct dhmp_transport *specify_trans)
+dhmp_post_send_info(size_t target_id, void * data, size_t length, struct dhmp_transport *specify_trans, size_t parttion_id)
 {
 	struct dhmp_transport *rdma_trans=NULL;
 	struct dhmp_msg msg;
@@ -470,8 +396,9 @@ dhmp_post_send_info(size_t target_id, void * data, size_t length, struct dhmp_tr
 	msg.msg_type = DHMP_MICA_SEND_INFO_REQUEST;
 	msg.data_size = length;
 	msg.data= data;
+	Assert(length < SINGLE_NORM_RECV_REGION);
 
-	dhmp_post_send(rdma_trans, &msg);
+	dhmp_post_send(rdma_trans, &msg, parttion_id);
 out:
 	return true;
 }
