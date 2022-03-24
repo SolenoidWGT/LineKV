@@ -18,25 +18,20 @@
 		<nvm_node>2</nvm_node>
 	</server> -->
 
-	<!-- node15 -->
 	<server id="0">
 		<nic_name>ib0</nic_name>
 		<addr>10.10.10.1</addr>
 		<port>31415</port>
 		<dram_node>0</dram_node>
-		<!-- <nvm_node>2</nvm_node> -->
 	</server>
 
-	<!-- node16 -->
 	<server id="1">
 		<nic_name>ib0</nic_name>
 		<addr>10.10.10.2</addr>
 		<port>31416</port>
 		<dram_node>0</dram_node>
-		<!-- <nvm_node>2</nvm_node> -->
 	</server>
 
-	<!-- node17 -->
 	<server id="2">
 		<nic_name>ib0</nic_name>
 		<addr>10.10.10.3</addr>
@@ -46,7 +41,21 @@
 
 	<!-- <server id="3">
 		<nic_name>ib0</nic_name>
-		<addr>10.10.10.1</addr>
+		<addr>10.10.10.2</addr>
+		<port>31420</port>
+		<dram_node>0</dram_node>
+	</server> -->
+
+	<server id="3">
+		<nic_name>ibp175s0</nic_name>
+		<addr>10.10.10.4</addr>
+		<port>31420</port>
+		<dram_node>0</dram_node>
+	</server>
+
+	<!-- <server id="3">
+		<nic_name>ib0</nic_name>
+		<addr>10.10.10.3</addr>
 		<port>31418</port>
 		<dram_node>0</dram_node>
 	</server> -->
