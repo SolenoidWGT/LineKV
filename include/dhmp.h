@@ -155,6 +155,8 @@ struct dhmp_msg{
 	struct list_head list_anchor;
 	struct dhmp_transport * trans;
 	int recv_partition_id;
+	int main_thread_set_id;
+	int partition_id;
 };
 
 /*struct dhmp_addr_info is the addr struct in cluster*/
@@ -459,6 +461,8 @@ void *busy_wait_cq_handler(void* data);
 void dhmp_send_request_handler(struct dhmp_transport* rdma_trans,
 									struct dhmp_msg* msg, 
 									bool * is_async);
+
+extern struct dhmp_msg** get_msgs_group;
 
 #define THROUGH_TEST
 #endif

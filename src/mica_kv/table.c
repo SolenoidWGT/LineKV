@@ -560,8 +560,8 @@ mehcached_set_item(struct mehcached_item *item, uint64_t key_hash, const uint8_t
     // printf("key length is %lu\n",   true_key_len);
     // printf("value length is %lu\n", true_value_len);
     // HexDump((char*)key_data, (int) (key_length + value_length), (size_t)key_base);
-    dump_value_by_addr((const uint8_t *)value_header, value_length);
-    INFO_LOG("SET: keyhash \"%lx\" value addr is [%p]", key_hash, value_data);
+    // dump_value_by_addr((const uint8_t *)value_header, value_length);
+    // INFO_LOG("SET: keyhash \"%lx\" value addr is [%p]", key_hash, value_data);
 }
 
 // 定长 update 操作会调用这个函数
@@ -608,7 +608,7 @@ mehcached_set_item_value(struct mehcached_item *item, const uint8_t *value, uint
         value_tail->dirty = false;
     }
     dump_value_by_addr( (const uint8_t *)value_header, value_length);
-    INFO_LOG("FIX length UPDTE node [%d]!", server_instance->server_id);
+    //INFO_LOG("FIX length UPDTE node [%d]!", server_instance->server_id);
 }
 
 static
@@ -1294,7 +1294,7 @@ mehcached_set(uint8_t current_alloc_id, struct mehcached_table *table, uint64_t 
         return NULL;
     }
     struct mehcached_item *new_item = (struct mehcached_item *)mehcached_dynamic_item(&table->alloc, new_item_offset);
-    INFO_LOG("memcached_set mapping id is %u", table->alloc.mapping_id);
+    //INFO_LOG("memcached_set mapping id is %u", table->alloc.mapping_id);
 #endif
 
     MEHCACHED_STAT_INC(table, set_new);
