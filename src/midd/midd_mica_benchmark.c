@@ -15,12 +15,20 @@
 int __test_size;
 int __access_num=0;
 int read_num, update_num;
+int end_round=0;
+bool get_is_more;
+int op_gaps[4];
+int little_idx=-1;
+bool is_all_set_all_get =false;
+
 enum WORK_LOAD_DISTRIBUTED workload_type;
 
+int main_node_is_readable;
 const double A = 1.3;  
 const double C = 1.0;  
 double pf[TEST_KV_NUM]; 
 int rand_num[TEST_KV_NUM]={0};
+struct test_kv kvs_group[TEST_KV_NUM];
 
 // 生成符合Zipfian分布的数据
 void generate_zipfian()
@@ -80,8 +88,8 @@ generate_test_data(size_t key_offset, size_t val_offset, size_t value_length, si
 {
     size_t i,j;
     int partition_id;
-    struct test_kv *kvs_group;
-    kvs_group = (struct test_kv *) malloc(sizeof(struct test_kv) * kv_nums);
+    // struct test_kv *kvs_group;
+    // kvs_group = (struct test_kv *) malloc(sizeof(struct test_kv) * kv_nums);
     memset(kvs_group, 0, sizeof(struct test_kv) * kv_nums);
 
     for (i = 0; i < kv_nums; i++)

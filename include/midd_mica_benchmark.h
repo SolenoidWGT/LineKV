@@ -17,6 +17,14 @@ extern enum WORK_LOAD_DISTRIBUTED workload_type;
 extern uint64_t set_counts, get_counts;
 extern int partition_set_count[PARTITION_MAX_NUMS];
 
+extern int get_is_more;
+extern int main_node_is_readable;
+extern struct test_kv kvs_group[TEST_KV_NUM];
+extern int op_gaps[4];
+extern int little_idx;
+extern int end_round;
+extern bool is_all_set_all_get;
+
 void pick_zipfian(int max_num);
 void pick_uniform(int max_num);
 

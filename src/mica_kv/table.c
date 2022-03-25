@@ -883,13 +883,13 @@ mehcached_get(uint8_t current_alloc_id MEHCACHED_UNUSED, struct mehcached_table 
             {
                 if (!is_main_table_latest(item, key_hash, key, key_length))
                 {
-                    INFO_LOG("*****Log table has latest data, get from log table!*****");
+                    //INFO_LOG("*****Log table has latest data, get from log table!*****");
                     return mehcached_get(current_alloc_id, log_table, key_hash, key, \
                                             key_length, out_value, in_out_value_length, \
                                             out_expire_time, readonly, get_true_value, get_status);
                 }
-                else
-                    INFO_LOG("*****Main table has latest data, get from Main table!*****");
+               // else
+                    //INFO_LOG("*****Main table has latest data, get from Main table!*****");
             }
         }
 
@@ -1576,7 +1576,7 @@ mehcached_table_init(struct mehcached_table *table, size_t num_buckets, size_t n
         size_t shm_id = mehcached_shm_alloc(shm_size, table_numa_node);
         if (shm_id == (size_t)-1)
         {
-            INFO_LOG("failed to allocate memory");
+            //INFO_LOG("failed to allocate memory");
             Assert(false);
         }
         while (true)
@@ -1819,7 +1819,7 @@ check_version_is_same(struct mehcached_item *item, size_t value_length, size_t a
     //memory_barrier();
     value_tail = (struct midd_value_tail   *)((uint8_t*) value_base + value_length - VALUE_TAIL_LEN);
     //memory_barrier();
-    INFO_LOG("header v is %lu, tail v is %lu", value_base->version, value_tail->version);
+    //INFO_LOG("header v is %lu, tail v is %lu", value_base->version, value_tail->version);
     return memcmp(&value_base->version, &value_tail->version, sizeof(uint64_t)) == 0;
 }
 

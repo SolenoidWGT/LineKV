@@ -29,6 +29,9 @@ void test_set(struct test_kv * kvs);
 struct dhmp_msg* all_access_set_group;
 static size_t SERVER_ID= (size_t)-1;
 
+
+void generate_local_get_mgs();
+
 int main(int argc,char *argv[])
 {
     // 初始化集群 rdma 连接
@@ -41,6 +44,7 @@ int main(int argc,char *argv[])
     const size_t num_pages_to_reserve = 16384 - 2048;   // give 2048 pages to dpdk
     
     INFO_LOG("Server argc is [%d]", argc);
+    main_node_is_readable = false;
     Assert(argc==8);
     for (i = 0; i<argc; i++)
 	{
@@ -90,37 +94,74 @@ int main(int argc,char *argv[])
         }
         else if (i==7)
         {
-            if(strcmp(argv[i], "1:1") == 0)
+            // get : set
+            // 写比读多好处理
+            if(strcmp(argv[i], "0.5") == 0)
             {
                 INFO_LOG(" RW_TATE is [%s]", argv[i]);
-                read_num = ACCESS_NUM /2;
-                update_num = ACCESS_NUM /2;
+                // read_num = ACCESS_NUM /2;
+                // update_num = ACCESS_NUM /2;
+                read_num = 5;
+                update_num = 5;
             }
-            else if(strcmp(argv[i], "0:1") == 0)
+            else if(strcmp(argv[i], "1.0") == 0)
             {
                 INFO_LOG(" RW_TATE is [%s]", argv[i]);
                 read_num = 0;
-                update_num = ACCESS_NUM;
+                update_num = 3000;
+                get_is_more = false;
+                is_all_set_all_get = true;
             }
-            else if(strcmp(argv[i], "1:0") == 0)
+            else if(strcmp(argv[i], "0.75") == 0)
             {
                 INFO_LOG(" RW_TATE is [%s]", argv[i]);
-                read_num = ACCESS_NUM;
-                update_num = 0;
+                read_num = 1;
+                update_num =3;
             }
-            else if(strcmp(argv[i], "4:1") == 0)
+            // 读比写多比较麻烦，需要各节点自己自动执行写操作
+            // 最极端的情况是全读
+            // 为了能触发和同步各节点的读操作，我们至少要设置一个写操作，并第一个执行
+            else if(strcmp(argv[i], "0.0") == 0)
             {
                 INFO_LOG(" RW_TATE is [%s]", argv[i]);
-                read_num = (int)(0.8 * ACCESS_NUM);
-                update_num = (int)(0.2 * ACCESS_NUM);
+                read_num = 3000;
+                update_num = 1;     // 至少有一个写操作
+                get_is_more = true;
+                is_all_set_all_get = true;
+            }
+            else if(strcmp(argv[i], "0.2") == 0)
+            {
+                INFO_LOG(" RW_TATE is [%s]", argv[i]);
+                read_num = 4;
+                update_num = 1;
+            }
+            else if(strcmp(argv[i], "0.01") == 0)
+            {
+                INFO_LOG(" RW_TATE is [%s]", argv[i]);
+                read_num = 99;
+                update_num = 1;
+                main_node_is_readable = true;
+            }
+            else if(strcmp(argv[i], "0.05") == 0)
+            {
+                INFO_LOG(" RW_TATE is [%s]", argv[i]);
+                read_num = 19;
+                update_num = 1;
+                main_node_is_readable = true;
             }
             else
             {
                 ERROR_LOG("Unkown rate!");
                 exit(0);
             }
-        }
-	}
+
+            if (update_num < 1)
+            {
+                ERROR_LOG("update_num not enought exit!");
+                exit(-1);
+            }
+	    }
+    }
 
 #ifdef NIC_MULITI_THREAD
     nic_thread_num = PARTITION_NUMS;
@@ -137,6 +178,106 @@ int main(int argc,char *argv[])
 
     // 初始化 rdma 连接
     server_instance = dhmp_server_init(SERVER_ID);
+
+    int available_r_node_num;
+    if (main_node_is_readable)
+        available_r_node_num = server_instance->config.nets_cnt;
+    else
+        available_r_node_num = (server_instance->config.nets_cnt - 1);
+
+    if (!is_all_set_all_get)
+    {
+        int __read_num_per_node;
+        //int divisible_read_num;
+        int left_op_nums;
+        int final_get_num;
+
+        read_num = 1000 * read_num;
+        update_num = 1000 * update_num;
+
+        __read_num_per_node = read_num / available_r_node_num;  // 丢弃无法整除的部分
+        //divisible_read_num = __read_num_per_node * available_r_node_num;
+
+        int i;
+        int divisible_get_nums[4];
+        //int loop_count_per_round[4];
+        memset(divisible_get_nums, 0, sizeof(int)*4);
+        // little_idx 之前的 op_gaps[idx] 表示需要每执行一次 set 要执行 for op_gaps[idx] 个 get
+        // little_idx 之后(包括little_idx)的 op_gaps[idx] 表示需要每执行 op_gaps[idx] 次 set 要执行 1 次 get
+        // 有了 little_idx  之后 get_is_more 就不重要了，只根据 little_idx 判断该进行 for 还是取 mod
+        int round=0;
+        // 读比写多
+        if (__read_num_per_node > update_num)
+        {
+            ERROR_LOG("Read is more!");
+            while(__read_num_per_node > 10 && round < 4)
+            {
+
+                if (__read_num_per_node > update_num)
+                {
+                    op_gaps[round] = __read_num_per_node / update_num;  // 要保留无法整除的部分
+                    divisible_get_nums[round] = (op_gaps[round] *update_num)*available_r_node_num;
+                    __read_num_per_node = __read_num_per_node - (op_gaps[round]  * update_num); // 要保留无法整除的部分
+                }
+                else
+                {
+                    op_gaps[round] = (int)ceil((double)update_num / (double)__read_num_per_node);  // 要保留无法整除的部分
+                    divisible_get_nums[round] = (update_num / op_gaps[round])*available_r_node_num;
+                    __read_num_per_node = __read_num_per_node - (update_num / op_gaps[round]); // 要保留无法整除的部分
+                    if (little_idx==-1)
+                        little_idx=round;  
+                }
+                ERROR_LOG("count:[%d], op_gaps:[%d], divisible_get_nums[%d], __read_num_per_node[%d]\n", round, op_gaps[round], divisible_get_nums[round], __read_num_per_node);
+                round++;
+                end_round = round;
+            }
+            // 每执行了 op_gap_2 个 set 之后需要额外执行 1 次 get 
+            final_get_num=0;
+            for (i=0; i<4; i++)
+                    final_get_num += divisible_get_nums[i];
+
+            get_is_more = true;
+            ERROR_LOG("FINALLY: update_num[%d], final_get_num:[%d], little_idx[%d], get_is_more[%d]\n",update_num, final_get_num,little_idx, get_is_more);
+        }
+        // 写比读多
+        else
+        {
+            // op_gaps[0] 表示每隔 op_gaps[0] 个 set 需要执行一次 get
+            ERROR_LOG("Write is more!");
+            op_gaps[0] = update_num / __read_num_per_node;  // 要保留无法整除的部分
+            little_idx = 0;
+            end_round = 1;
+            left_op_nums = update_num - (op_gaps[0] * __read_num_per_node); // 要保留无法整除的部分
+            final_get_num = op_gaps[0] * __read_num_per_node;
+            get_is_more = false;
+            ERROR_LOG("FINALLY: update_num[%d], __read_num_per_node[%d], left_op_nums:[%d],  final_get_num:[%d], get_is_more[%d]",update_num, __read_num_per_node, left_op_nums, final_get_num ,get_is_more);
+        }
+
+        // 更新最终的读数量
+        read_num = final_get_num;
+        // 更新最终的 access 数量
+        __access_num = read_num + update_num;
+        Assert(little_idx != -1 && little_idx < end_round);
+    }
+    else
+    {   
+        // 纯读纯写的数量默认是 3000
+        // 纯写无所谓
+        // 纯读需要被副本节点数量整除
+        if (read_num % available_r_node_num != 0)
+        {
+            ERROR_LOG("read_num mod available_r_node_num != 0");
+            exit(0);
+        }
+
+        // 更新最终的读数量
+        // read_num =  read_num / available_r_node_num; 
+        // 更新最终的 access 数量
+        __access_num = read_num + update_num;
+    }
+    // op_gap;
+    generate_local_get_mgs();
+
     client_mgr = dhmp_client_init(INIT_DHMP_CLIENT_BUFF_SIZE, false);
     Assert(server_instance);
     Assert(client_mgr);
@@ -359,7 +500,7 @@ int main(int argc,char *argv[])
 
 
 struct dhmp_msg* 
-pack_test_resq(struct test_kv * kvs, int tag)
+pack_test_set_resq(struct test_kv * kvs, int tag)
 {
     void * base;
     struct dhmp_msg* msg;
@@ -400,25 +541,88 @@ pack_test_resq(struct test_kv * kvs, int tag)
     INIT_LIST_HEAD(&msg->list_anchor);
     msg->trans = NULL;
     msg->recv_partition_id = -1;
+    msg->partition_id = req_data->partition_id;
+    // msg->main_thread_set_id = 0; main_thread_set_id 在运行时被设置
     Assert(msg->list_anchor.next != LIST_POISON1 && msg->list_anchor.prev!= LIST_POISON2);
     return msg;
 }
 
-void workloada_server(struct test_kv * kvs_group);
+struct dhmp_msg* 
+pack_test_get_resq(struct test_kv * kvs, int tag, size_t expect_length)
+{
+  	void * base;
+	void * data_addr;
+    struct dhmp_msg* msg;
+	struct post_datagram *req_msg;
+	struct dhmp_mica_get_request *req_data;
+    struct dhmp_mica_get_response* get_resp;
+    size_t key_length = kvs->true_key_length+KEY_TAIL_LEN;
+	size_t total_length = sizeof(struct post_datagram) + sizeof(struct dhmp_mica_get_request) + key_length;
+
+	// 如果有指针可以 reuse ，那么 reuse
+    msg = (struct dhmp_msg*)malloc(sizeof(struct dhmp_msg));
+    base = malloc(total_length);
+    memset(base, 0 , total_length);
+    // get_resp = (struct dhmp_mica_get_response*) malloc(sizeof(struct dhmp_mica_get_response) + expect_length);
+    get_resp = NULL;
+	req_msg  = (struct post_datagram *) base;
+	req_data = (struct dhmp_mica_get_request *)((char *)base + sizeof(struct post_datagram));
+
+	// 填充公共报文
+	req_msg->node_id = (int)server_instance->server_id;	 // 向对端发送自己的 node_id 用于身份辨识
+	req_msg->req_ptr = req_msg;
+	req_msg->done_flag = false;
+	req_msg->info_type = MICA_GET_REQUEST;
+	req_msg->info_length = sizeof(struct dhmp_mica_get_request);
+
+	// 填充私有报文
+	req_data->current_alloc_id = 0;
+	req_data->key_hash = kvs->key_hash;
+	req_data->key_length = key_length;
+	req_data->get_resp = get_resp;
+	req_data->peer_max_recv_buff_length = (size_t)expect_length;
+	req_data->partition_id = (int) (*((size_t*)kvs->key)  % (PARTITION_NUMS));
+	req_data->tag = (size_t)tag;
+	data_addr = (void*)req_data + offsetof(struct dhmp_mica_get_request, data);
+	memcpy(data_addr, kvs->key, GET_TRUE_KEY_LEN(key_length));		// copy key
+
+    msg->data = base;
+    msg->data_size = total_length;
+    msg->msg_type = DHMP_MICA_SEND_INFO_REQUEST;
+    INIT_LIST_HEAD(&msg->list_anchor);
+    msg->trans = NULL;
+    msg->recv_partition_id = -1;
+    msg->partition_id = req_data->partition_id;
+    Assert(msg->list_anchor.next != LIST_POISON1 && msg->list_anchor.prev!= LIST_POISON2);
+    return msg;
+}
+
+void workloada_server();
 
 void new_main_test_through()
 {
-    struct test_kv * kvs_group = generate_test_data((size_t)0, (size_t)1, (size_t)__test_size , (size_t)TEST_KV_NUM);
-    workloada_server(kvs_group);
+    workloada_server();
+}
+
+void generate_local_get_mgs()
+{
+    // 生成本地读负载
+    int i, idx;
+    get_msgs_group = (struct dhmp_msg**) malloc( (size_t)(read_num+1 )* sizeof(void*));
+    generate_test_data((size_t)0, (size_t)1, (size_t)__test_size , (size_t)TEST_KV_NUM);
+    for (i=0; i<=(int)read_num;i++)
+    {
+        idx = (int)rand_num[i % TEST_KV_NUM];
+        get_msgs_group[i] = pack_test_get_resq(&kvs_group[idx], idx, (size_t)__test_size + VALUE_HEADER_LEN + VALUE_TAIL_LEN);
+    }
 }
 
 // 1：1
-void workloada_server(struct test_kv * kvs_group)
+void workloada_server()
 {
 	int i = 0;
     int idx;
     // struct timespec start_t, end_t;
-    long long int set_time=0, get_time=0;
     //struct set_requset_pack req_callback_ptr;	
     // 生成Zipfian数据
     switch (workload_type)
@@ -435,48 +639,28 @@ void workloada_server(struct test_kv * kvs_group)
     }
     INFO_LOG("pick");
 
-    struct dhmp_msg** set_msg_pack = (struct dhmp_msg**) malloc( (size_t)ACCESS_NUM * sizeof(void*));
+    struct dhmp_msg** set_msgs_group = (struct dhmp_msg**) malloc( (size_t)update_num * sizeof(void*));
     int * idx_array = (int*) malloc((size_t)ACCESS_NUM * sizeof(int));
-    for (i=0; i<(int)ACCESS_NUM;i++)
+    //  生成写负载
+    for (i=0; i<(int)update_num;i++)
     {
         idx = (int)rand_num[i % TEST_KV_NUM];
-        set_msg_pack[i] = pack_test_resq(&kvs_group[idx], idx);
+        set_msgs_group[i] = pack_test_set_resq(&kvs_group[idx], idx);
         idx_array[i] = i;
     }
 
     struct timespec start_through, end_through;
     long long int total_set_through_time=0;
-	for(i=0;i < ACCESS_NUM ;i++)
+    clock_gettime(CLOCK_MONOTONIC, &start_through);
+	for(i=0;i < update_num ;i++)
 	{
-        // addr_table_update(addr_table[rand_num[j]],local_buf);
         bool is_async;
-        //clock_gettime(CLOCK_MONOTONIC, &start_t);
-        if (set_counts == 100)
-            clock_gettime(CLOCK_MONOTONIC, &start_through);
-
-        dhmp_send_request_handler(NULL, set_msg_pack[i], &is_async, 0, 0);
-        // INFO_LOG("set tag is [%ld], set counts [%d]", idx_array[i], i);
-        // clock_gettime(CLOCK_MONOTONIC, &end_t);	
-        // set_time += (((end_t.tv_sec * 1000000000) + end_t.tv_nsec) - ((start_t.tv_sec * 1000000000) + start_t.tv_nsec)); 
-
-#ifdef MAIN_LOG_DEBUG_THROUGHOUT
-        set_counts++;
-        if (set_counts == (uint64_t)__access_num) 
-        {
-            clock_gettime(CLOCK_MONOTONIC, &end_through);
-            total_set_through_time = ((((end_through.tv_sec * 1000000000) + end_through.tv_nsec) - ((start_through.tv_sec * 1000000000) + start_through.tv_nsec)));
-            ERROR_LOG("[set] count[%d] through_out time is [%lld] us", (__access_num-100), total_set_through_time /1000);
-            for (i=0; i<(int)PARTITION_NUMS; i++)
-                ERROR_LOG("partition[%d] set count [%d]",i, partition_set_count[i]);
-        }
-#endif
+        dhmp_send_request_handler(NULL, set_msgs_group[i], &is_async, 0, 0);
 	}
+    clock_gettime(CLOCK_MONOTONIC, &end_through);
+    total_set_through_time = ((((end_through.tv_sec * 1000000000) + end_through.tv_nsec) - ((start_through.tv_sec * 1000000000) + start_through.tv_nsec)));
+    ERROR_LOG("[set] count[%d] through_out time is [%lld] us", update_num, total_set_through_time /1000);
 
-    if (read_num!=0)
-        ERROR_LOG("workloada test FINISH! avg get time is [%ld]us",  get_time /( US_BASE * read_num));
-    if (update_num!=0)
-        ERROR_LOG("workloada test FINISH! avg set time is [%ld]us",  set_time /( US_BASE * update_num));
-    
     sleep(10);
 }
 

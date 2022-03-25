@@ -161,6 +161,8 @@ struct dhmp_msg{
 	struct list_head list_anchor;
 	struct dhmp_transport * trans;
 	int recv_partition_id;
+	int main_thread_set_id;
+	int partition_id;
 };
 
 /*struct dhmp_addr_info is the addr struct in cluster*/
@@ -487,6 +489,7 @@ struct dhmp_mica_get_p2p_MR_info_RQ
 #define MAIN_LOG_DEBUG_THROUGHOUT 
 // #define START_COUNT 1000
 // #define END_COUNT 4000
+#define THROUGH_TEST
 void dhmp_send_request_handler(struct dhmp_transport* rdma_trans,
 									struct dhmp_msg* msg, 
 									bool * is_async,
@@ -494,4 +497,5 @@ void dhmp_send_request_handler(struct dhmp_transport* rdma_trans,
 									 __syscall_slong_t time_start2);
 
 void distribute_partition_resp(int partition_id, struct dhmp_transport* rdma_trans, struct dhmp_msg* msg,  __time_t time_start1, __syscall_slong_t time_start2);
+extern struct dhmp_msg** get_msgs_group;
 #endif
