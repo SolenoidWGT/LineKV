@@ -20,7 +20,7 @@
 #define SINGLE_POLL_RECV_REGION (64*1024)
 #define SINGLE_NORM_RECV_REGION (64*1024)
 
-
+// 函数前缀没有双下划线的函数是单线程执行的
 void dhmp_wc_recv_handler(struct dhmp_transport* rdma_trans, struct dhmp_msg* msg, bool *is_async);
 
 

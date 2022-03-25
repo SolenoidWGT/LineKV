@@ -121,6 +121,8 @@ enum mica_send_info_type{
 
 	MICA_REPLICA_UPDATE_REQUEST,
 	MICA_REPLICA_UPDATE_RESPONSE,
+
+	DHMP_MICA_SEND_2PC_REQUEST,
 };
 
 enum middware_state{
@@ -155,6 +157,8 @@ struct dhmp_msg{
 	struct list_head list_anchor;
 	struct dhmp_transport * trans;
 	int recv_partition_id;
+	int main_thread_set_id;
+	int partition_id;
 };
 
 /*struct dhmp_addr_info is the addr struct in cluster*/
@@ -188,6 +192,11 @@ struct post_datagram
 	enum     mica_send_info_type info_type;		// 报文类型的判别
 	size_t   info_length;						// 具体消息报文的长度
 	volatile int   reuse_done_count;			// 异步，重复使用报文时的计数
+
+	bool repllica1;
+	bool repllica2;
+	bool repllica3;
+
 	volatile bool  done_flag;					// 用于判别报文是否发送完成，用于阻塞
 };
 #define HEADER_LEN sizeof(struct post_datagram)
@@ -466,4 +475,6 @@ void dhmp_send_request_handler(struct dhmp_transport* rdma_trans,
 									bool * is_async);
 
 #define THROUGH_TEST
+
+extern struct dhmp_msg** get_msgs_group;
 #endif
