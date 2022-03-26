@@ -310,6 +310,7 @@ static void dhmp_qp_release(struct dhmp_transport* rdma_trans)
 	{
 		// 终止 cq 轮询线程
 		*(rdma_trans->dcq->stop_flag_ptr) = true;
+		trans_thread_idx--;
 
 		ibv_destroy_qp(rdma_trans->qp);
 		ibv_destroy_comp_channel(rdma_trans->dcq->comp_channel);
