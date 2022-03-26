@@ -24,3 +24,4 @@ scp  ./config.xml gtwang@node24:/home/gtwang/LineKV/config.xml
 scp  ./config.xml gtwang@node22:/home/gtwang/LineKV/config.xml
 scp  ./config.xml gtwang@node20:/home/gtwang/LineKV/config.xml
 scp  ./bin/mica  gtwang@node24:/home/gtwang/LineKV 
+scp  ./bin/test_RTT  gtwang@node24:/home/gtwang/LineKV

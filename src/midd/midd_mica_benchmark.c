@@ -87,7 +87,7 @@ struct test_kv *
 generate_test_data(size_t key_offset, size_t val_offset, size_t value_length, size_t kv_nums)
 {
     size_t i,j;
-    int partition_id;
+    // int partition_id;
     // struct test_kv *kvs_group;
     // kvs_group = (struct test_kv *) malloc(sizeof(struct test_kv) * kv_nums);
     memset(kvs_group, 0, sizeof(struct test_kv) * kv_nums);
@@ -95,6 +95,7 @@ generate_test_data(size_t key_offset, size_t val_offset, size_t value_length, si
     for (i = 0; i < kv_nums; i++)
     {
         size_t key = i;
+        key = key<<16;
         // size_t key = 314156;
         // size_t value = i + offset;
         // uint64_t key_hash = hash((const uint8_t *)&key, sizeof(key));
@@ -116,7 +117,7 @@ generate_test_data(size_t key_offset, size_t val_offset, size_t value_length, si
         memcpy(kvs_group[i].key, &key, kvs_group[i].true_key_length);
         // memcpy(kvs_group[i].value, &value, kvs_group[i].true_value_length);
         
-        partition_id = *((size_t*)kvs_group[i].key)  % (PARTITION_NUMS);
+        // partition_id = *((size_t*)kvs_group[i].key)  % (PARTITION_NUMS);
         //ERROR_LOG("Hash code %x, partition_id: [%d]", kvs_group[i].key_hash, partition_id);
     }
 

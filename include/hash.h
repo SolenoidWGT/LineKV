@@ -112,6 +112,8 @@ static uint64_t hash(const uint8_t *key, size_t len)
     // uint64_t low_id = (key_id*3141) & 0x00ffffff; 
     // uint64_t hash_code = (uint64_t) ((partition_id<<48) |  low_id) ;
     // return hash_code;
-    return CityHash64((const char *)key, len);
+
+    return *(uint64_t*)key;
+    // return CityHash64((const char *)key, len);
 }
 

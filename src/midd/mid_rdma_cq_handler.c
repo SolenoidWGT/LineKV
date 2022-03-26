@@ -20,6 +20,7 @@
  */
 static void dhmp_wc_success_handler(struct ibv_wc* wc)
 {
+	DEFINE_STACK_TIMER();
 	struct dhmp_task *task_ptr;
 	struct dhmp_transport *rdma_trans;
 	struct dhmp_msg *msg;
@@ -32,7 +33,6 @@ static void dhmp_wc_success_handler(struct ibv_wc* wc)
 	int recv_partition_id;
 	
 	//DEFINE_STACK_TIMER();
-	struct timespec start, end;
 	task_ptr=(struct dhmp_task*)(uintptr_t)wc->wr_id;
 	rdma_trans=task_ptr->rdma_trans;
 	recv_partition_id= task_ptr->partition_id;
@@ -64,9 +64,10 @@ static void dhmp_wc_success_handler(struct ibv_wc* wc)
 			// 由于 mirror 收到 imm 报文不需要保存接收缓冲区，因为可以立刻释放接收缓冲区
 			dhmp_post_recv(rdma_trans, task_ptr->sge.addr, recv_partition_id);
 			//  = dhmp_mica_set_request_handler(rdma_trans, NULL, ntohl(wc->imm_data));
-			
+
 			break;
 		case IBV_WC_RECV:
+			MICA_TIME_COUNTER_INIT();
 			msg = (struct dhmp_msg *) malloc(sizeof(struct dhmp_msg));
 			/*read the msg content from the task_ptr sge addr*/
 			msg->msg_type=*(enum dhmp_msg_type*)task_ptr->sge.addr;
@@ -79,6 +80,8 @@ static void dhmp_wc_success_handler(struct ibv_wc* wc)
 
 			//MICA_TIME_COUNTER_INIT();
 			clock_gettime(CLOCK_MONOTONIC, &start);
+			if (msg->recv_partition_id == 0)
+				MICA_TIME_COUNTER_CAL("IBV_WC_RECV init");
 			dhmp_wc_recv_handler(rdma_trans, msg, &is_async,start.tv_sec, start.tv_nsec);
 			// dhmp_post_recv 需要放到多线程的末尾去处理
 			// 发送双边操作的数据大小不能超过  SINGLE_NORM_RECV_REGION （16MB）
@@ -87,7 +90,6 @@ static void dhmp_wc_success_handler(struct ibv_wc* wc)
 				dhmp_post_recv(rdma_trans, task_ptr->sge.addr, recv_partition_id);
 				free(msg);
 			}
-			//MICA_TIME_COUNTER_CAL("dhmp_wc_recv_handler");
 			break;
 
 		case IBV_WC_RDMA_WRITE:
@@ -184,6 +186,9 @@ void dhmp_comp_channel_handler(struct dhmp_cq* dcq)
 
 void* busy_wait_cq_handler(void* data)
 {
+	pid_t pid = gettid();
+	pthread_t tid = pthread_self();
+	ERROR_LOG("Pid [%d] Tid [%ld]", pid, tid);
 	struct dhmp_cq* dcq = (struct dhmp_cq* )data;
 	dhmp_comp_channel_handler(dcq);
 }

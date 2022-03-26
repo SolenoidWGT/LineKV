@@ -46,7 +46,7 @@
 		<dram_node>0</dram_node>
 	</server> -->
 
-	<server id="3">
+	<server id="4">
 		<nic_name>ibp175s0</nic_name>
 		<addr>10.10.10.4</addr>
 		<port>31420</port>

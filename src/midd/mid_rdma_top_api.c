@@ -62,7 +62,6 @@ micaserver_get_cliMR(struct replica_mappings  *resp_mapping_ptr, size_t target_i
 	MICA_TIME_COUNTER_INIT();
 	while(req_msg->done_flag == false)
 		MICA_TIME_LIMITED(0, 30*TIMEOUT_LIMIT_MS);
-	MICA_TIME_COUNTER_CAL("micaserver_get_cliMR");
 
 out:
 	free(base);
@@ -108,7 +107,6 @@ mica_basic_ack_req(size_t target_id, enum ack_info_type ack_type, bool block)
 		MICA_TIME_COUNTER_INIT();
 		while(req_msg->done_flag == false)
 			MICA_TIME_LIMITED(0, TIMEOUT_LIMIT_MS);
-		MICA_TIME_COUNTER_CAL("mica_basic_ack_req");
 	}
 
 	// 我们直接将 response 报文中的 ack_info_state 复制到request 报文中的 
@@ -150,7 +148,6 @@ mica_ask_nodeID_req(struct dhmp_transport* new_rdma_trans)
 	MICA_TIME_COUNTER_INIT();
 	while(req_msg->done_flag == false)
 		MICA_TIME_LIMITED(0, 20*TIMEOUT_LIMIT_MS);
-	MICA_TIME_COUNTER_CAL("mica_ask_nodeID_req");
 
 	result = req_data->node_id;
 	free(base);
@@ -200,6 +197,7 @@ mica_set_remote(uint8_t current_alloc_id,  uint64_t key_hash, const uint8_t *key
 	size_t total_length = 0;
 	size_t re_mapping_id=0;
 	int partition_id;
+	size_t tmp_key;
 
 	// HexDump((char*)key, (int) (key_length + value_length), (size_t)key);
 	if (!re_use_datagram)
@@ -232,7 +230,11 @@ mica_set_remote(uint8_t current_alloc_id,  uint64_t key_hash, const uint8_t *key
 		req_data->overwrite = overwrite;
 		req_data->is_update = is_update;
 		req_data->tag = tag;
-		req_data->partition_id = (int) (*((size_t*)key)  % (PARTITION_NUMS));
+		// req_data->partition_id = (int) (*((size_t*)key)  % (PARTITION_NUMS));
+		tmp_key = *((size_t*)(key));
+		tmp_key = tmp_key>>16;
+		req_data->partition_id = ((int) tmp_key) % ((int)PARTITION_NUMS);
+		
 		memcpy(&(req_data->data), key, GET_TRUE_KEY_LEN(key_length));		// copy key
 
 		// 设置 partition id
@@ -261,7 +263,6 @@ mica_set_remote(uint8_t current_alloc_id,  uint64_t key_hash, const uint8_t *key
 		MICA_TIME_COUNTER_INIT();
 		while(req_msg->done_flag == false)
 			MICA_TIME_LIMITED(tag, TIMEOUT_LIMIT_MS);
-		//MICA_TIME_COUNTER_CAL("mica_set_remote");
 
 		if (req_data->is_success == false)
 		{
@@ -319,6 +320,7 @@ mica_get_remote(uint8_t current_alloc_id,  uint64_t key_hash, const uint8_t *key
 	struct dhmp_mica_get_request *req_data;
 	size_t total_length = sizeof(struct post_datagram) + sizeof(struct dhmp_mica_get_request) + key_length;
 	struct dhmp_mica_get_response* get_resp;
+	size_t tmp_key;
 
 	// 如果有指针可以 reuse ，那么 reuse
 	if (reuse_ptr->resp_ptr == NULL)
@@ -354,7 +356,12 @@ mica_get_remote(uint8_t current_alloc_id,  uint64_t key_hash, const uint8_t *key
 	req_data->key_length = key_length;
 	req_data->get_resp = get_resp;
 	req_data->peer_max_recv_buff_length = expect_length;
-	req_data->partition_id = (int) (*((size_t*)key)  % (PARTITION_NUMS));
+	
+	//req_data->partition_id = (int) (*((size_t*)key)  % (PARTITION_NUMS));
+	tmp_key = *((size_t*)(key));
+	tmp_key = tmp_key>>16;
+	req_data->partition_id = ((int) tmp_key) % ((int)PARTITION_NUMS);
+	
 	req_data->tag = tag;
 	data_addr = (void*)req_data + offsetof(struct dhmp_mica_get_request, data);
 	memcpy(data_addr, key, GET_TRUE_KEY_LEN(key_length));		// copy key
@@ -373,7 +380,6 @@ mica_get_remote(uint8_t current_alloc_id,  uint64_t key_hash, const uint8_t *key
 		MICA_TIME_COUNTER_INIT();
 		while(req_msg->done_flag == false)
 			MICA_TIME_LIMITED(0, TIMEOUT_LIMIT_MS);
-		MICA_TIME_COUNTER_CAL("mica_get_remote");
 
 		// free(base);
 	}
@@ -462,7 +468,6 @@ mica_replica_update_notify(uint64_t item_offset, int partition_id, int tag)
 	MICA_TIME_COUNTER_INIT();
 	while(req_msg->done_flag == false)
 		MICA_TIME_LIMITED(tag, TIMEOUT_LIMIT_MS);
-	MICA_TIME_COUNTER_CAL("mica_replica_update_notify");
 */
 	free(base);
 }

@@ -29,6 +29,7 @@ void test_set(struct test_kv * kvs);
 struct dhmp_msg* all_access_set_group;
 static size_t SERVER_ID= (size_t)-1;
 
+int *partition_req_count_array;
 
 void generate_local_get_mgs();
 
@@ -276,6 +277,8 @@ int main(int argc,char *argv[])
         __access_num = read_num + update_num;
     }
     // op_gap;
+    partition_req_count_array = (int*) malloc(sizeof(int) * PARTITION_NUMS);
+    memset(partition_req_count_array, 0, sizeof(int) * PARTITION_NUMS);
     generate_local_get_mgs();
 
     client_mgr = dhmp_client_init(INIT_DHMP_CLIENT_BUFF_SIZE, false);
@@ -490,6 +493,7 @@ int main(int argc,char *argv[])
     if (IS_MAIN(server_instance->server_type))
     {
         new_main_test_through();
+        exit(0);
     }
 #endif
 
@@ -509,6 +513,7 @@ pack_test_set_resq(struct test_kv * kvs, int tag)
     size_t key_length  = kvs->true_key_length +  KEY_TAIL_LEN;
     size_t value_length= kvs->true_value_length + VALUE_HEADER_LEN + VALUE_TAIL_LEN;
     size_t total_length = sizeof(struct post_datagram) + sizeof(struct dhmp_mica_set_request) + key_length + value_length;
+    size_t tmp_key;
     msg = (struct dhmp_msg*)malloc(sizeof(struct dhmp_msg));
 	base = malloc(total_length); 
 	memset(base, 0 , total_length);
@@ -531,7 +536,17 @@ pack_test_set_resq(struct test_kv * kvs, int tag)
 	req_data->overwrite = true;
 	req_data->is_update = false;
 	req_data->tag = (size_t)tag;
-    req_data->partition_id = (int) (*((size_t*)kvs->key)  % (PARTITION_NUMS));
+
+    // req_data->partition_id = (int) (*((size_t*)kvs->key)  % (PARTITION_NUMS));
+    
+    tmp_key = *((size_t*)(kvs->key));
+    tmp_key = tmp_key>>16;
+	req_data->partition_id = ((int) tmp_key) % ((int)PARTITION_NUMS);
+
+    //ERROR_LOG("tmp_key is %ld, part id:%d",tmp_key, req_data->partition_id);
+    Assert(tmp_key <= (size_t)TEST_KV_NUM);
+    partition_req_count_array[req_data->partition_id]++;
+
 	memcpy(&(req_data->data), kvs->key, kvs->true_key_length);		// copy key
     memcpy(( (void*)&(req_data->data) + key_length), kvs->value,  kvs->true_value_length);	
 
@@ -558,6 +573,7 @@ pack_test_get_resq(struct test_kv * kvs, int tag, size_t expect_length)
     struct dhmp_mica_get_response* get_resp;
     size_t key_length = kvs->true_key_length+KEY_TAIL_LEN;
 	size_t total_length = sizeof(struct post_datagram) + sizeof(struct dhmp_mica_get_request) + key_length;
+    size_t tmp_key;
 
 	// 如果有指针可以 reuse ，那么 reuse
     msg = (struct dhmp_msg*)malloc(sizeof(struct dhmp_msg));
@@ -581,7 +597,11 @@ pack_test_get_resq(struct test_kv * kvs, int tag, size_t expect_length)
 	req_data->key_length = key_length;
 	req_data->get_resp = get_resp;
 	req_data->peer_max_recv_buff_length = (size_t)expect_length;
-	req_data->partition_id = (int) (*((size_t*)kvs->key)  % (PARTITION_NUMS));
+
+    tmp_key = *((size_t*)(kvs->key));
+    tmp_key = tmp_key>>16;
+	req_data->partition_id = ((int) tmp_key) % ((int)PARTITION_NUMS);
+
 	req_data->tag = (size_t)tag;
 	data_addr = (void*)req_data + offsetof(struct dhmp_mica_get_request, data);
 	memcpy(data_addr, kvs->key, GET_TRUE_KEY_LEN(key_length));		// copy key
@@ -649,19 +669,21 @@ void workloada_server()
         idx_array[i] = i;
     }
 
+    for (i=0; i<PARTITION_NUMS; i++)
+        ERROR_LOG("partition id [%d] counts [%d]", i , partition_req_count_array[i]);
+    //exit(0);
+
     struct timespec start_through, end_through;
     long long int total_set_through_time=0;
     clock_gettime(CLOCK_MONOTONIC, &start_through);
-	for(i=0;i < update_num ;i++)
-	{
+    for(i=0;i < update_num ;i++)
+    {
         bool is_async;
         dhmp_send_request_handler(NULL, set_msgs_group[i], &is_async, 0, 0);
-	}
+    }
     clock_gettime(CLOCK_MONOTONIC, &end_through);
     total_set_through_time = ((((end_through.tv_sec * 1000000000) + end_through.tv_nsec) - ((start_through.tv_sec * 1000000000) + start_through.tv_nsec)));
     ERROR_LOG("[set] count[%d] through_out time is [%lld] us", update_num, total_set_through_time /1000);
-
-    sleep(10);
 }
 
 // 测试所有节点中的数据必须一致

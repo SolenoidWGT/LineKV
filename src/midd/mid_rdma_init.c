@@ -294,11 +294,11 @@ struct dhmp_server * dhmp_server_init(size_t server_id)
 
 			server_instance->server_id = server_instance->config.curnet_id;
 
-			if (server_instance->config.nets_cnt < 3)
-			{
-				ERROR_LOG("Too few nodes to start system, at least node num is [3], now is [%d], exit!", \
-						server_instance->config.nets_cnt);
-			}
+			// if (server_instance->config.nets_cnt < 3)
+			// {
+			// 	ERROR_LOG("Too few nodes to start system, at least node num is [3], now is [%d], exit!", \
+			// 			server_instance->config.nets_cnt);
+			// }
 
 			if (server_instance->server_id == 0)
 				SET_MAIN(server_instance->server_type);

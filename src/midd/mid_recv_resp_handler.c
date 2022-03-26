@@ -19,8 +19,8 @@
 #include "dhmp_top_api.h"
 #include "midd_mica_benchmark.h"
 //#define MAIN_LOG_DEBUG_LATENCE
-
-
+#include <linux/unistd.h>
+pid_t gettid(void){ return syscall(__NR_gettid); }
 
 volatile bool replica_is_ready = false;
 struct timespec start_through, end_through;
@@ -764,10 +764,10 @@ main_node_broadcast_matedata(struct dhmp_mica_set_request  * req_info,
 							  struct post_datagram * req_msg,
 							  size_t total_length)
 {
+	DEFINE_STACK_TIMER();
     int nid, reval;
 	struct set_requset_pack req_callback_ptr;	// 默认不超过10个节点
-	//DEFINE_STACK_TIMER();
-	struct timespec start, end, start_g, end_g, start_l, end_l;
+	struct timespec  start_g, end_g, start_l, end_l;
 	long long time1,time2,time3, time4=0;
 	size_t replica_node_num = (size_t)server_instance->config.nets_cnt - 2;
 	uint32_t partition_id = req_info->partition_id;
@@ -784,9 +784,9 @@ main_node_broadcast_matedata(struct dhmp_mica_set_request  * req_info,
 	
     for (nid = MIRROR_NODE_ID; nid <= REPLICA_NODE_TAIL_ID; nid++)
     {
+		MICA_TIME_COUNTER_INIT();
 		if (nid == MIRROR_NODE_ID)
 		{
-			clock_gettime(CLOCK_MONOTONIC, &start);
 
 			struct dhmp_task write_task;
 			struct ibv_sge sge;
@@ -813,14 +813,15 @@ main_node_broadcast_matedata(struct dhmp_mica_set_request  * req_info,
 			reval=ibv_post_send ( trans->qp, &send_wr, &bad_wr );
 			if ( reval )
 			{
-				ERROR_LOG("ibv_post_send error");
+				ERROR_LOG("ibv_post_send error[%d], reason is [%s]", errno,strerror(errno));
 				exit(-1);
 			}
-			while (!write_task.done_flag);
+			//while (!write_task.done_flag);
 
-			clock_gettime(CLOCK_MONOTONIC, &end);
-			time1 = (((end.tv_sec * 1000000000) + end.tv_nsec) - ((start.tv_sec * 1000000000) + start.tv_nsec)); 
-			INFO_LOG("[broadcast]->[for:req_callback_ptr]->[imm]----tag[%d], partition[%d]", req_info->tag, partition_id );
+			// time1 = (((end.tv_sec * 1000000000) + end.tv_nsec) - ((start.tv_sec * 1000000000) + start.tv_nsec)); 
+			//INFO_LOG("[broadcast]->[for:req_callback_ptr]->[imm]----tag[%d], partition[%d]", req_info->tag, partition_id );
+			if (partition_id==0)
+				MICA_TIME_COUNTER_CAL("imm MIRROR_NODE_ID");
 		}
 		else
 		{
@@ -835,37 +836,41 @@ main_node_broadcast_matedata(struct dhmp_mica_set_request  * req_info,
 				ERROR_LOG("mica_set_remote error!");
 				exit(-1);
 			}
+			if (partition_id==0)
+				MICA_TIME_COUNTER_CAL("mica_set_reuse");
 		}
     }
 
-	clock_gettime(CLOCK_MONOTONIC, &start);
-	// 
-	// while( __sync_bool_compare_and_swap(&mirror_node_mapping[partition_id].in_used_flag, 0, 0) )
+	MICA_TIME_COUNTER_INIT();
+	clock_gettime(CLOCK_MONOTONIC, &start_l);
 	while(mirror_node_mapping[partition_id].in_used_flag == 1)
 	{
-		clock_gettime(CLOCK_MONOTONIC, &end);			    	
-		long long mica_total_time_ns = (((end.tv_sec * 1000000000) + end.tv_nsec) - ((start.tv_sec * 1000000000) + start.tv_nsec)); 
+		clock_gettime(CLOCK_MONOTONIC, &end_l);			    	
+		long long mica_total_time_ns = (((end_l.tv_sec * 1000000000) + end_l.tv_nsec) - ((start_l.tv_sec * 1000000000) + start_l.tv_nsec)); 
 		if (mica_total_time_ns / MS_BASE > 500)	
 		{													
 			ERROR_LOG("tag : [%d], set_count [%d] TIMEOUT! count_num is [%d],  retry!", req_info->tag, set_counts, req_info->count_num);
 			exit(-1);
 		}
 	}
-	clock_gettime(CLOCK_MONOTONIC, &end);
-	time1 = (((end.tv_sec * 1000000000) + end.tv_nsec) - ((start.tv_sec * 1000000000) + start.tv_nsec)); 
-	INFO_LOG("[broadcast]->[for:req_callback_ptr]->[mirror]----use time [%d], tag[%d], partition[%d]", time1, req_info->tag, partition_id);
+	//INFO_LOG("[broadcast]->[for:req_callback_ptr]->[mirror]----use time [%d], tag[%d], partition[%d]", time1, req_info->tag, partition_id);
+	if (partition_id==0)
+		MICA_TIME_COUNTER_CAL("while mirror");
 
-	clock_gettime(CLOCK_MONOTONIC, &start);
+	MICA_TIME_COUNTER_INIT();
+	clock_gettime(CLOCK_MONOTONIC, &start_l);
 	while(req_info->count_num != 0)
 	{
-		clock_gettime(CLOCK_MONOTONIC, &end);			    	
-		long long mica_total_time_ns = (((end.tv_sec * 1000000000) + end.tv_nsec) - ((start.tv_sec * 1000000000) + start.tv_nsec)); 
+		clock_gettime(CLOCK_MONOTONIC, &end_l);			    	
+		long long mica_total_time_ns = (((end_l.tv_sec * 1000000000) + end_l.tv_nsec) - ((start_l.tv_sec * 1000000000) + start_l.tv_nsec)); 
 		if (mica_total_time_ns / MS_BASE > 500)	
 		{													
 			ERROR_LOG("tag : [%d], set_count [%d] TIMEOUT! count_num is [%d],  retry!", req_info->tag, set_counts, req_info->count_num);
 			exit(-1);
 		}
 	}
+	if (partition_id==0)
+		MICA_TIME_COUNTER_CAL("while replica");
 
 	item->mapping_id 		= req_info->out_mapping_id;
 	item->remote_value_addr = req_info->out_value_addr;
@@ -946,11 +951,13 @@ int  get_resp_partition_id(struct post_datagram *req)
 
 void distribute_partition_resp(int partition_id, struct dhmp_transport* rdma_trans, struct dhmp_msg* msg, __time_t time_start1, __syscall_slong_t time_start2)
 {
+	DEFINE_STACK_TIMER();
 	struct mica_work_context * mgr;
 	volatile uint64_t * lock;
 	struct post_datagram * req = (struct post_datagram*)(msg->data);
 	struct timespec  start_g, end_g, start_l, end_l;
 	long long time1,time2,time3, time4=0;
+	//int retry_count=0;
 
 	switch (msg->msg_type)
 	{
@@ -966,9 +973,6 @@ void distribute_partition_resp(int partition_id, struct dhmp_transport* rdma_tra
 			break;
 	}
 	lock = &(mgr->bit_locks[partition_id]);
-
-	DEFINE_STACK_TIMER();
-	MICA_TIME_COUNTER_INIT();
 
 	if (__partition_nums == 1)
 	{
@@ -1009,19 +1013,24 @@ void distribute_partition_resp(int partition_id, struct dhmp_transport* rdma_tra
 		// }
 
 		// 如果去掉速度限制，则链表空指针的断言会失败，应该还是有线程间同步bug
+		MICA_TIME_COUNTER_INIT();
 		for (;;)
 		{
-			if (partition_work_nums[partition_id] <= 20)
+			if (partition_work_nums[partition_id] <= 50 /*|| retry_count >=500 */)
 				break;
+			//else
+				//retry_count++;
 		}
 		// while(partition_work_nums[partition_id] != 0);
-
+		//retry_count=0;
 		partition_lock(lock);
 		//Assert(msg->list_anchor.next != LIST_POISON1 && msg->list_anchor.prev!= LIST_POISON2);
 		list_add(&msg->list_anchor,  &main_thread_send_list[partition_id]);
 		partition_work_nums[partition_id]++;
 		//Assert(msg->list_anchor.next != LIST_POISON1 && msg->list_anchor.prev!= LIST_POISON2);
 		partition_unlock(lock);
+		if (partition_id==0)
+			MICA_TIME_COUNTER_CAL("distribute_partition_resp");
 
 		// memory_barrier();
 		// mgr->buff_msg_data[partition_id].msg = msg;
@@ -1042,6 +1051,7 @@ void distribute_partition_resp(int partition_id, struct dhmp_transport* rdma_tra
 
 void* mica_work_thread(void *data)
 {
+	DEFINE_STACK_TIMER();
 	int partition_id, i;
 	enum dhmp_msg_type type;
 	volatile uint64_t * lock;
@@ -1051,7 +1061,10 @@ void* mica_work_thread(void *data)
 	long long time1,time2,time3, time4=0;
 	struct dhmp_msg* msg=NULL, *temp_msg=NULL;
 	int msg_nums =0;
-
+	int retry_time=0;
+	pid_t pid = gettid();
+	pthread_t tid = pthread_self();
+	ERROR_LOG("Pid [%d] Tid [%ld]", pid, tid);
 	partition_id = init_data->partition_id;
 	type = init_data->thread_type;
 	partition_set_count[partition_id] = 0;
@@ -1075,10 +1088,12 @@ void* mica_work_thread(void *data)
 	while (true)
 	{
 		//memory_barrier();
-		if (partition_work_nums[partition_id] != 0)
+		if (partition_work_nums[partition_id] == 20 || retry_time >= 500)
 		{
 			// if (*flag == '1')
 			// {
+				retry_time =0;
+				MICA_TIME_COUNTER_INIT();
 				partition_lock(lock);
 				// // 如果写入完成标志位不是由一个 memcpy 完成的，那么需要用 barrier 保证写的顺序
 				// memcpy(&trans_msg, &(mgr->buff_msg_data[partition_id]), sizeof(struct dhmp_mica_msg_data)); 
@@ -1089,21 +1104,26 @@ void* mica_work_thread(void *data)
 				// msg_nums = partition_work_nums[partition_id];
 				partition_work_nums[partition_id] = 0;
 				partition_unlock(lock);
+				if (partition_id==0)
+					MICA_TIME_COUNTER_CAL("mica_work_thread get lock");
 
 				list_for_each_entry_safe(msg, temp_msg, &(partition_local_send_list[partition_id]), list_anchor)
 				{
 					// 执行分区的操作
-					Assert(msg->list_anchor.next != LIST_POISON1 && msg->list_anchor.prev!= LIST_POISON2);
+					//Assert(msg->list_anchor.next != LIST_POISON1 && msg->list_anchor.prev!= LIST_POISON2);
 					bool need_post_recv = true;
 
 					__dhmp_wc_recv_handler(msg->trans, msg, partition_id, &need_post_recv);
-					list_del(&msg->list_anchor);
+					MICA_TIME_COUNTER_INIT();
+					//list_del(&msg->list_anchor);
 					if (need_post_recv)
 					{
 						// 发送双边操作的数据大小不能超过  SINGLE_NORM_RECV_REGION （16MB）
 						dhmp_post_recv(msg->trans, msg->data - sizeof(enum dhmp_msg_type) - sizeof(size_t), msg->recv_partition_id);
 						free(container_of(&(msg->data), struct dhmp_msg , data));	// #define container_of(ptr, type, member)
 					}
+					if (partition_id==0)
+						MICA_TIME_COUNTER_CAL("dhmp_post_recv");
 
 					// 间歇性的执行 get操作，暂时中断当前的写操作
 					if (!is_all_set_all_get && msg->main_thread_set_id != -1)
@@ -1115,6 +1135,8 @@ void* mica_work_thread(void *data)
 				// INFO_LOG("[mica_work_thread]----tag[%d], partition[%d]", req_info->tag, req_info->partition_id );
 			// }
 		}
+		else
+			retry_time++;
 	}
 }
 
@@ -1159,7 +1181,6 @@ dhmp_mica_main_replica_set_request_handler(struct dhmp_transport* rdma_trans, st
 	if (IS_REPLICA(server_instance->server_type))
 		Assert(replica_is_ready == true);
 
-	
 	req_info  = (struct dhmp_mica_set_request *) DATA_ADDR(req, 0);
 	peer_req_datagram = req->req_ptr;
 	reuse_length = sizeof(struct post_datagram) + sizeof(struct dhmp_mica_set_request) + req_info->key_length;
@@ -1184,14 +1205,9 @@ dhmp_mica_main_replica_set_request_handler(struct dhmp_transport* rdma_trans, st
 	resp = (struct post_datagram *) malloc(DATAGRAM_ALL_LEN(resp_len));
 	memset(resp, 0, DATAGRAM_ALL_LEN(resp_len));
 	set_result = (struct dhmp_mica_set_response *) DATA_ADDR(resp, 0);
-
-#ifdef MAIN_LOG_DEBUG
-	if (IS_MAIN(server_instance->server_type))
-	{
-		//MICA_TIME_COUNTER_CAL("[]->[init]")
-		//WARN_LOG("Get set tag[%ld]", req_info->tag);
-	}
-#endif
+	
+	if (req_info->partition_id==0)
+		MICA_TIME_COUNTER_CAL("[set]->[init]");
 	// 注意！，此处不需要调用 warpper 函数
 	// 因为传递过来的 value 地址已经添加好头部和尾部了，长度也已经加上了头部和尾部的长度。
 	
@@ -1208,10 +1224,9 @@ dhmp_mica_main_replica_set_request_handler(struct dhmp_transport* rdma_trans, st
 						&is_update,
 						&is_maintable,
 						NULL);
-#ifdef MAIN_LOG_DEBUG
-	if (IS_MAIN(server_instance->server_type))
-		MICA_TIME_COUNTER_CAL("[]->[mehcached_set]");
-#endif
+
+	if (req_info->partition_id==0)
+		MICA_TIME_COUNTER_CAL("[set]->[mehcached_set]");
 	// Assert(is_update == req_info->is_update);
 	if (IS_REPLICA(server_instance->server_type))
 		Assert(is_maintable == true);
@@ -1260,6 +1275,7 @@ dhmp_mica_main_replica_set_request_handler(struct dhmp_transport* rdma_trans, st
 	//	INFO_LOG("Main Node: key hash [%lx] notices downstream replica node!", req_info->key_hash); 
 #endif
 	}
+	MICA_TIME_COUNTER_INIT();
 	clock_gettime(CLOCK_MONOTONIC, &end_g);	
 
 #ifdef MAIN_LOG_DEBUG_LATENCE
@@ -1289,23 +1305,18 @@ dhmp_mica_main_replica_set_request_handler(struct dhmp_transport* rdma_trans, st
 
 	// 副本节点先向 主节点 发送回复，节约一次 RTT 的时间
 	// 主节点向客户端发送回复
-	MICA_TIME_COUNTER_INIT();
-
 #ifdef MAIN_LOG_DEBUG_THROUGHOUT
 	if (!IS_MAIN(server_instance->server_type))
 	{
 #endif 
 		resp_msg_ptr = make_basic_msg(&resp_msg, resp);
 		dhmp_post_send(rdma_trans, resp_msg_ptr, req_info->partition_id);
+		free(resp);
 		INFO_LOG("[dhmp_post_sendr]->[upstream]----tag[%d], partition[%d]", req_info->tag, req_info->partition_id );
 #ifdef MAIN_LOG_DEBUG_THROUGHOUT
 	}
 #endif 
 
-#ifdef MAIN_LOG_DEBUG
-	//if (IS_MAIN(server_instance->server_type))
-	//	MICA_TIME_COUNTER_CAL("[]->[dhmp_post_send]");
-#endif
 	// 各副本节点（除了主节点直接负责的副本节点）还需要向各自的直接上游
 	// 节点发送自己的新分配的 item 的 mappingID 和虚拟地址
 	if (!IS_HEAD(server_instance->server_type) &&
@@ -1316,6 +1327,8 @@ dhmp_mica_main_replica_set_request_handler(struct dhmp_transport* rdma_trans, st
 		dhmp_post_send(find_connect_client_by_nodeID(server_instance->server_id - 1), resp_msg_ptr, req_info->partition_id);
 		INFO_LOG("[dhmp_post_sendr]->[DIRECT-upstream]----tag[%d], partition[%d]", req_info->tag, req_info->partition_id );
 	}
+	if (req_info->partition_id==0)
+		MICA_TIME_COUNTER_CAL("[None]");
 
 	if (IS_MAIN(server_instance->server_type))
 	{
@@ -1334,6 +1347,8 @@ dhmp_mica_main_replica_set_request_handler(struct dhmp_transport* rdma_trans, st
 								MEHCACHED_VALUE_LENGTH(item->kv_length_vec),\
 								req_info->tag,
 								req_info->partition_id);
+		if (req_info->partition_id==0)
+			MICA_TIME_COUNTER_CAL("[None]->[makeup_update_request]");
 #ifdef MAIN_LOG_DEBUG
 	//	MICA_TIME_COUNTER_CAL("[]->[makeup_update_request]");
 #endif
@@ -1371,6 +1386,8 @@ dhmp_mica_mirror_set_request_handler(struct dhmp_transport* rdma_trans, uint32_t
 
 	resp_msg_ptr = make_basic_msg(&resp_msg, resp);
 	dhmp_post_send(rdma_trans, resp_msg_ptr, (size_t)partition_id);
+
+	free(resp);
 
 	//free(resp);
 	// ERROR_LOG("[dhmp_mica_mirror_set_request_handler] [%d] is ok", partition_id);

@@ -24,6 +24,7 @@
 int main(int argc,char *argv[])
 {
     int i, is_server, reval;
+    __partition_nums = 6;
     for (i = 1; i<argc; i++)
         is_server = atoi(argv[i]);
 
@@ -35,18 +36,23 @@ int main(int argc,char *argv[])
     }
     else
     {
-        INFO_LOG("client");
+        INFO_LOG("-------client--------");
 
-            struct timespec start, end;
-            long long total_set_time =0;
-            client_mgr = dhmp_client_init(INIT_DHMP_CLIENT_BUFF_SIZE, true);
-            reval = mica_clinet_connect_server(INIT_DHMP_CLIENT_BUFF_SIZE, SERVER_NODE_ID);
-            struct dhmp_msg req_msg;
-            if (reval == -1)
-                Assert(false);
+        struct timespec start, end;
+        long long total_set_time =0;
+        int time_count_array[20];
+        memset(time_count_array, 0, sizeof(int) * 20);
+        client_mgr = dhmp_client_init(INIT_DHMP_CLIENT_BUFF_SIZE, true);
+        init_mulit_server_work_thread();
+        reval = mica_clinet_connect_server(INIT_DHMP_CLIENT_BUFF_SIZE, SERVER_NODE_ID);
+        struct dhmp_msg req_msg;
+        if (reval == -1)
+            Assert(false);
+
         for (i=0; i<1000;i++)
         {
             struct post_datagram req;
+            long long this_time;
             req.req_ptr  = &req;		    		
             req.resp_ptr = NULL;							
             req.node_id  = CLIENT_NODE_ID;
@@ -57,14 +63,23 @@ int main(int argc,char *argv[])
             req_msg.msg_type = DHMP_MICA_SEND_INFO_REQUEST;
             req_msg.data_size = sizeof(struct post_datagram);
             req_msg.data= &req;
+            req_msg.recv_partition_id = -1;
+            INIT_LIST_HEAD(&req_msg.list_anchor);
             dhmp_post_send(find_connect_server_by_nodeID(SERVER_NODE_ID), &req_msg, PARTITION_NUMS);
 
             clock_gettime(CLOCK_MONOTONIC, &start);
             while(req.done_flag == false);
             clock_gettime(CLOCK_MONOTONIC, &end);
-            total_set_time = (((end.tv_sec * 1000000000) + end.tv_nsec) - ((start.tv_sec * 1000000000) + start.tv_nsec));
-            ERROR_LOG("time is [%lld]us", total_set_time/1000);
+            this_time = (((end.tv_sec * 1000000000) + end.tv_nsec) - ((start.tv_sec * 1000000000) + start.tv_nsec));
+            total_set_time += this_time;
+            time_count_array[this_time/1000]++;
+            // ERROR_LOG("time is [%lld]us", total_set_time/1000);
         }
+
+        ERROR_LOG("avg time is [%ld]", total_set_time/(1000*1000));
+
+        for (i=0; i<20; i++)
+            ERROR_LOG("[%d]us count [%d]", i, time_count_array[i]);
     }
     return 0;
 }

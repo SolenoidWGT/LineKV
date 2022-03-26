@@ -413,8 +413,11 @@ extern volatile bool replica_is_ready;
 	{															\
 		clock_gettime(CLOCK_MONOTONIC, &end);			    	\
 		long long mica_total_time_ns = (((end.tv_sec * 1000000000) + end.tv_nsec) - ((start.tv_sec * 1000000000) + start.tv_nsec)); \
-		INFO_LOG("[%s] exec time is [%lld] us", msg_str, mica_total_time_ns / US_BASE); 	\
 	}while(0);
+
+
+		// if (IS_MAIN(server_instance->server_type))				\
+		// 	ERROR_LOG("[%s] exec time is [%lld] ns", msg_str, mica_total_time_ns); 	\
 
 #define MICA_TIME_COUNTER_CAL_PRINTF(msg_str)					\
 	{															\
@@ -498,4 +501,5 @@ void dhmp_send_request_handler(struct dhmp_transport* rdma_trans,
 
 void distribute_partition_resp(int partition_id, struct dhmp_transport* rdma_trans, struct dhmp_msg* msg,  __time_t time_start1, __syscall_slong_t time_start2);
 extern struct dhmp_msg** get_msgs_group;
+pid_t gettid();
 #endif
