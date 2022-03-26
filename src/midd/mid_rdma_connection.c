@@ -1,3 +1,4 @@
+#define _GNU_SOURCE 1
 #include <infiniband/verbs.h>
 #include <rdma/rdma_cma.h>
 #include <netinet/in.h>
@@ -9,6 +10,7 @@
 #include "dhmp_server.h"
 #include "dhmp_log.h"
 #include "dhmp_client.h"
+static int trans_thread_idx=1;
 void dhmp_event_channel_handler(int fd, void* data);
 int dhmp_transport_listen(struct dhmp_transport* rdma_trans, int listen_port)
 {
@@ -223,7 +225,9 @@ struct dhmp_cq* dhmp_cq_get(struct dhmp_device* device, struct dhmp_context* ctx
 	// 	printf("pthread_attr_setschedparam:%d\n", retval);
 	// 	return NULL;
 	// }
-
+	cpu_set_t cpuset;
+	CPU_ZERO(&cpuset);
+	CPU_SET(PARTITION_NUMS + trans_thread_idx, &cpuset);
 	ctx->stop_flag[i] = false;
 	dcq->stop_flag_ptr = &ctx->stop_flag[i];
 	retval=pthread_create(&ctx->busy_wait_cq_thread[i], NULL, busy_wait_cq_handler, (void*)dcq);
@@ -232,7 +236,12 @@ struct dhmp_cq* dhmp_cq_get(struct dhmp_device* device, struct dhmp_context* ctx
 		ERROR_LOG("context add comp channel fd error.");
 		goto cleanchannel;
 	}
+	// 绑核
+	retval = pthread_setaffinity_np(ctx->busy_wait_cq_thread[i], sizeof(cpu_set_t), &cpuset);
+	if (retval != 0)
+		handle_error_en(retval, "pthread_setaffinity_np");
 
+	trans_thread_idx++;
 	return dcq;
 
 cleaneventfd:

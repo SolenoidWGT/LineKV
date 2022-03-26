@@ -743,20 +743,6 @@ make_basic_msg(struct dhmp_msg * res_msg, struct post_datagram *resp)
 	return res_msg;
 }
 
-	// item = mehcached_set(req_info->current_alloc_id,
-	// 					table,
-	// 					req_info->key_hash,
-	// 					key_addr,
-	// 					req_info->key_length,
-	// 					value_addr,
-	// 					req_info->value_length,
-	// 					req_info->expire_time,
-	// 					req_info->overwrite,
-	// 					&is_update,
-	// 					&is_maintable,
-	// 					NULL);
-
-
 bool 
 main_node_broadcast_matedata(struct dhmp_mica_set_request  * req_info, 
 							  struct mehcached_item * item, void * key_addr, 
@@ -785,13 +771,12 @@ main_node_broadcast_matedata(struct dhmp_mica_set_request  * req_info,
     for (nid = MIRROR_NODE_ID; nid <= REPLICA_NODE_TAIL_ID; nid++)
     {
 		MICA_TIME_COUNTER_INIT();
+		struct dhmp_transport* trans = find_connect_server_by_nodeID(nid);
 		if (nid == MIRROR_NODE_ID)
 		{
-
 			struct dhmp_task write_task;
 			struct ibv_sge sge;
 			struct ibv_send_wr send_wr,*bad_wr=NULL;
-			struct dhmp_transport* trans = find_connect_server_by_nodeID(MIRROR_NODE_ID);
 
 			write_task.done_flag = false;
 			write_task.is_imm = true;
@@ -818,24 +803,24 @@ main_node_broadcast_matedata(struct dhmp_mica_set_request  * req_info,
 			}
 			//while (!write_task.done_flag);
 
-			// time1 = (((end.tv_sec * 1000000000) + end.tv_nsec) - ((start.tv_sec * 1000000000) + start.tv_nsec)); 
-			//INFO_LOG("[broadcast]->[for:req_callback_ptr]->[imm]----tag[%d], partition[%d]", req_info->tag, partition_id );
+			time1 = (((end.tv_sec * 1000000000) + end.tv_nsec) - ((start.tv_sec * 1000000000) + start.tv_nsec)); 
+			INFO_LOG("[broadcast]->[for:req_callback_ptr]->[imm]----tag[%d], partition[%d]", req_info->tag, partition_id );
 			if (partition_id==0)
 				MICA_TIME_COUNTER_CAL("imm MIRROR_NODE_ID");
 		}
 		else
 		{
-			size_t re = mica_set_reuse(nid, 
-									server_instance->server_id, 
-									req_info->tag, 
-									req_msg,
-									total_length,
-									partition_id);
-			if (re == (size_t) -1)
-			{
-				ERROR_LOG("mica_set_remote error!");
-				exit(-1);
-			}
+			struct dhmp_msg msg;
+			msg.data = req_msg;
+			msg.data_size = total_length;
+			msg.msg_type = DHMP_MICA_SEND_INFO_REQUEST;
+			dhmp_post_send(trans, &msg, partition_id);
+			// size_t re = mica_set_reuse(nid,  server_instance->server_id, req_info->tag, req_msg,total_length,partition_id);
+			// if (re == (size_t) -1)
+			// {
+			// 	ERROR_LOG("mica_set_remote error!");
+			// 	exit(-1);
+			// }
 			if (partition_id==0)
 				MICA_TIME_COUNTER_CAL("mica_set_reuse");
 		}
@@ -853,7 +838,7 @@ main_node_broadcast_matedata(struct dhmp_mica_set_request  * req_info,
 			exit(-1);
 		}
 	}
-	//INFO_LOG("[broadcast]->[for:req_callback_ptr]->[mirror]----use time [%d], tag[%d], partition[%d]", time1, req_info->tag, partition_id);
+	INFO_LOG("[broadcast]->[for:req_callback_ptr]->[mirror]----use time [%d], tag[%d], partition[%d]", time1, req_info->tag, partition_id);
 	if (partition_id==0)
 		MICA_TIME_COUNTER_CAL("while mirror");
 
@@ -887,11 +872,10 @@ int init_mulit_server_work_thread()
 	memset(&(mica_work_context_mgr[0]), 0, sizeof(struct mica_work_context));
 	memset(&(mica_work_context_mgr[1]), 0, sizeof(struct mica_work_context));
 
-	
 	for (i=0; i<PARTITION_NUMS; i++)
 	{
-		// CPU_ZERO(&cpuset);
-		// CPU_SET(i, &cpuset);
+		CPU_ZERO(&cpuset);
+		CPU_SET(i, &cpuset);
 		thread_init_data *data = (thread_init_data *) malloc(sizeof(thread_init_data));
 		data->partition_id = i;
 		data->thread_type = (enum dhmp_msg_type) DHMP_MICA_SEND_INFO_REQUEST;
@@ -906,10 +890,10 @@ int init_mulit_server_work_thread()
 			return -1;
 		}
 		// 绑核
-		// retval = pthread_setaffinity_np(mica_work_context_mgr->threads[i], sizeof(cpu_set_t), &cpuset);
-		// if (retval != 0)
-		// 	handle_error_en(retval, "pthread_setaffinity_np");
-		// INFO_LOG("set affinity cpu [%d] to thread [%d]", i, i);
+		retval = pthread_setaffinity_np(mica_work_context_mgr[DHMP_MICA_SEND_INFO_REQUEST].threads[i], sizeof(cpu_set_t), &cpuset);
+		if (retval != 0)
+			handle_error_en(retval, "pthread_setaffinity_np");
+		INFO_LOG("set affinity cpu [%d] to thread [%d]", i, i);
 	}
 }
 
@@ -1088,7 +1072,7 @@ void* mica_work_thread(void *data)
 	while (true)
 	{
 		//memory_barrier();
-		if (partition_work_nums[partition_id] == 20 || retry_time >= 500)
+		if (partition_work_nums[partition_id] != 0 /* || retry_time >= 500*/)
 		{
 			// if (*flag == '1')
 			// {
@@ -1210,7 +1194,7 @@ dhmp_mica_main_replica_set_request_handler(struct dhmp_transport* rdma_trans, st
 		MICA_TIME_COUNTER_CAL("[set]->[init]");
 	// 注意！，此处不需要调用 warpper 函数
 	// 因为传递过来的 value 地址已经添加好头部和尾部了，长度也已经加上了头部和尾部的长度。
-	
+
 	MICA_TIME_COUNTER_INIT();
 	item = mehcached_set(req_info->current_alloc_id,
 						table,
@@ -1250,32 +1234,6 @@ dhmp_mica_main_replica_set_request_handler(struct dhmp_transport* rdma_trans, st
 		set_result->is_success = false;
 		Assert(false);
 	}
-
-	if (IS_MAIN(server_instance->server_type))
-	{
-		// void 
-		// main_node_broadcast_matedata(struct dhmp_mica_set_request  * req_info, 
-		// 							struct mehcached_item * item, void * key_addr, uint64_t key_hash,  
-		// 							void * value_addr, bool is_update, bool is_maintable)
-		// 现在有一个问题需要确定，传递过来的 key 和 value 应该是不携带元数据的，但是此时 key 和 value 的长度已经加上了元数据的长度
-		
-		// MICA_TIME_COUNTER_INIT();
-		main_node_broadcast_matedata(req_info,
-									item,
-									key_addr,
-									value_addr,
-									is_update,
-									is_maintable,
-									req,
-									reuse_length);
-
-
-#ifdef MAIN_LOG_DEBUG
-	//	MICA_TIME_COUNTER_CAL("[]->[broadcast]");
-	//	INFO_LOG("Main Node: key hash [%lx] notices downstream replica node!", req_info->key_hash); 
-#endif
-	}
-	MICA_TIME_COUNTER_INIT();
 	clock_gettime(CLOCK_MONOTONIC, &end_g);	
 
 #ifdef MAIN_LOG_DEBUG_LATENCE
@@ -1285,55 +1243,47 @@ dhmp_mica_main_replica_set_request_handler(struct dhmp_transport* rdma_trans, st
 		ERROR_LOG("[] count[%d] avg time is [%lld]us", set_counts, total_set_latency_time / (US_BASE*(set_counts-100)));
 #endif
 
-	// 拷贝 key 和 key 的长度,用于链中节点向上游节点发送消息
-	if (!IS_HEAD(server_instance->server_type) &&
-		!IS_MIRROR(server_instance->server_type) &&
-		!IS_MAIN(server_instance->server_type))
-	{
-		memcpy(set_result->key_data, key_addr, req_info->key_length);
-		set_result->key_length = req_info->key_length;
-		set_result->key_hash = req_info->key_hash;
-	}
-
-	// 填充 response 报文
-	resp->req_ptr  = peer_req_datagram;		    		// 原样返回对方用于消息完成时的报文的判别
-	resp->resp_ptr = resp;							// 自身用于消息完成时报文的判别
-	resp->node_id  = server_instance->server_id;	// 向对端发送自己的 node_id 用于身份辨识
-	resp->info_type = MICA_SET_RESPONSE;
-	resp->info_length = resp_len;
-	resp->done_flag = false;						// request_handler 不关心 done_flag（不需要阻塞）
-
 	// 副本节点先向 主节点 发送回复，节约一次 RTT 的时间
 	// 主节点向客户端发送回复
-#ifdef MAIN_LOG_DEBUG_THROUGHOUT
 	if (!IS_MAIN(server_instance->server_type))
 	{
-#endif 
+		// 填充 response 报文
+		resp->req_ptr  = peer_req_datagram;		    		// 原样返回对方用于消息完成时的报文的判别
+		resp->resp_ptr = resp;							// 自身用于消息完成时报文的判别
+		resp->node_id  = server_instance->server_id;	// 向对端发送自己的 node_id 用于身份辨识
+		resp->info_type = MICA_SET_RESPONSE;
+		resp->info_length = resp_len;
+		resp->done_flag = false;						// request_handler 不关心 done_flag（不需要阻塞）
+
 		resp_msg_ptr = make_basic_msg(&resp_msg, resp);
 		dhmp_post_send(rdma_trans, resp_msg_ptr, req_info->partition_id);
 		free(resp);
 		INFO_LOG("[dhmp_post_sendr]->[upstream]----tag[%d], partition[%d]", req_info->tag, req_info->partition_id );
-#ifdef MAIN_LOG_DEBUG_THROUGHOUT
-	}
-#endif 
 
-	// 各副本节点（除了主节点直接负责的副本节点）还需要向各自的直接上游
-	// 节点发送自己的新分配的 item 的 mappingID 和虚拟地址
-	if (!IS_HEAD(server_instance->server_type) &&
-		!IS_MIRROR(server_instance->server_type) &&
-		!IS_MAIN(server_instance->server_type) )
-	{
-		// 发送给上游节点，我们是被动建立连接的一方，是服务端
-		dhmp_post_send(find_connect_client_by_nodeID(server_instance->server_id - 1), resp_msg_ptr, req_info->partition_id);
-		INFO_LOG("[dhmp_post_sendr]->[DIRECT-upstream]----tag[%d], partition[%d]", req_info->tag, req_info->partition_id );
+		if (!IS_HEAD(server_instance->server_type) &&
+			!IS_MIRROR(server_instance->server_type))
+		{
+			// 拷贝 key 和 key 的长度,用于链中节点向上游节点发送消息
+			memcpy(set_result->key_data, key_addr, req_info->key_length);
+			set_result->key_length = req_info->key_length;
+			set_result->key_hash = req_info->key_hash;
+			// 发送给上游节点，我们是被动建立连接的一方，是服务端
+			dhmp_post_send(find_connect_client_by_nodeID(server_instance->server_id - 1), resp_msg_ptr, req_info->partition_id);
+			INFO_LOG("[dhmp_post_sendr]->[DIRECT-upstream]----tag[%d], partition[%d]", req_info->tag, req_info->partition_id );
+		}
 	}
-	if (req_info->partition_id==0)
-		MICA_TIME_COUNTER_CAL("[None]");
-
-	if (IS_MAIN(server_instance->server_type))
+	else
 	{
 		size_t item_offset;
-		
+		// 现在有一个问题需要确定，传递过来的 key 和 value 应该是不携带元数据的，但是此时 key 和 value 的长度已经加上了元数据的长度
+		main_node_broadcast_matedata(req_info,
+									item,
+									key_addr,
+									value_addr,
+									is_update,
+									is_maintable,
+									req,
+									reuse_length);
 		if (is_maintable)
 			item_offset = get_offset_by_item(main_table, item);
 		else
@@ -1349,9 +1299,6 @@ dhmp_mica_main_replica_set_request_handler(struct dhmp_transport* rdma_trans, st
 								req_info->partition_id);
 		if (req_info->partition_id==0)
 			MICA_TIME_COUNTER_CAL("[None]->[makeup_update_request]");
-#ifdef MAIN_LOG_DEBUG
-	//	MICA_TIME_COUNTER_CAL("[]->[makeup_update_request]");
-#endif
 	}
 
 	// INFO_LOG("key_hash is %lx, len is %lu, addr is %p ", req_info->key_hash, req_info->key_length, key_addr);
@@ -1483,6 +1430,7 @@ dhmp_set_server_response_handler(struct post_datagram *resp,
 		// 根据 key_hash 查表，将下游节点的 out_mapping_id 和 out_value_addr 赋值
 		// 有可能下游节点已经向上游节点返回set信息，但是主节点的set信息元数据还没有到达，因此需要while等待
 		//INFO_LOG("key_hash is %lx, len is %lu, addr is %p ", key_hash, key_length, key_addr);
+		
 		MICA_TIME_COUNTER_INIT();
 		while (true)
 		{
@@ -1494,6 +1442,7 @@ dhmp_set_server_response_handler(struct post_datagram *resp,
 		INFO_LOG("[dhmp_set_response_handler]----tag[%d], partition[%d]", resp_info->tag, resp_info->partition_id );
 		target_item->mapping_id = resp_info->out_mapping_id;
 		target_item->remote_value_addr = resp_info->value_addr;
+		
 		//INFO_LOG("Node [%d] recv downstram node's key_hash \"[%lx]\"'s virtual addr info is %p", \
 						server_instance->server_id, resp_info->key_hash, target_item->remote_value_addr);
 		return;

@@ -684,6 +684,9 @@ void workloada_server()
     clock_gettime(CLOCK_MONOTONIC, &end_through);
     total_set_through_time = ((((end_through.tv_sec * 1000000000) + end_through.tv_nsec) - ((start_through.tv_sec * 1000000000) + start_through.tv_nsec)));
     ERROR_LOG("[set] count[%d] through_out time is [%lld] us", update_num, total_set_through_time /1000);
+
+    // 等待测试结束
+    sleep(10);
 }
 
 // 测试所有节点中的数据必须一致
