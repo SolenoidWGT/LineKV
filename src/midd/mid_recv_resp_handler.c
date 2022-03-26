@@ -33,7 +33,11 @@ long long int total_through_time = 0;
 // 主线程和 partition 线程互相同步的变量
 struct mica_work_context mica_work_context_mgr[2];
 unsigned long long  __partition_nums;
+
+// 吞吐计数
+int avg_partition_count_num=0;
 int partition_set_count[PARTITION_MAX_NUMS];
+bool partition_count_set_done_flag[PARTITION_MAX_NUMS]; 
 
 struct list_head partition_local_send_list[PARTITION_MAX_NUMS];   
 struct list_head main_thread_send_list[PARTITION_MAX_NUMS];
@@ -61,6 +65,9 @@ void dhmp_mica_set_request_handler(struct dhmp_transport* rdma_trans, struct pos
 */
 struct dhmp_msg** get_msgs_group;
 static void  check_get_op(struct dhmp_msg* msg, size_t partition_id);
+
+
+
 
 
 /*
@@ -611,6 +618,9 @@ int init_mulit_server_work_thread()
 	INIT_LIST_HEAD(&wait_distribute_job_list);
 	memset(&(mica_work_context_mgr[0]), 0, sizeof(struct mica_work_context));
 	memset(&(mica_work_context_mgr[1]), 0, sizeof(struct mica_work_context));
+	
+	avg_partition_count_num = update_num /(int) PARTITION_NUMS;
+	memset(partition_count_set_done_flag, 0, sizeof(bool) * PARTITION_MAX_NUMS);
 
 	
 	for (i=0; i<PARTITION_NUMS; i++)
@@ -696,8 +706,8 @@ void distribute_partition_resp(int partition_id, struct dhmp_transport* rdma_tra
 	}
 	lock = &(mgr->bit_locks[partition_id]);
 
-	DEFINE_STACK_TIMER();
-	MICA_TIME_COUNTER_INIT();
+	// DEFINE_STACK_TIMER();
+	//MICA_TIME_COUNTER_INIT();
 
 	if (__partition_nums == 1)
 	{
@@ -722,7 +732,7 @@ void distribute_partition_resp(int partition_id, struct dhmp_transport* rdma_tra
 		// 如果去掉速度限制，则链表空指针的断言会失败，应该还是有线程间同步bug
 		for (;;)
 		{
-			if (partition_work_nums[partition_id] <= 50 || retry_count > 1000)
+			if (partition_work_nums[partition_id] <= 50)
 				break;
 			else
 				retry_count++;
@@ -797,7 +807,7 @@ void* mica_work_thread(void *data)
 	while (true)
 	{
 		//memory_barrier();
-		if (partition_work_nums[partition_id] >= 0 || retry_count >1000)
+		if (partition_work_nums[partition_id] >= 50 || retry_count >1000)
 		{
 			retry_count = 0;
 			partition_lock(lock);
@@ -838,7 +848,7 @@ void
 dhmp_mica_set_request_handler(struct dhmp_transport* rdma_trans, struct post_datagram *req, int partition_id)
 {
 	struct timespec start_g, end_g;
-	clock_gettime(CLOCK_MONOTONIC, &start_g);	
+	//clock_gettime(CLOCK_MONOTONIC, &start_g);	
 	struct post_datagram *resp, *old_req_datagram;
 	struct dhmp_mica_set_request  * req_info;
 	struct dhmp_mica_set_response * set_result;
@@ -912,45 +922,50 @@ dhmp_mica_set_request_handler(struct dhmp_transport* rdma_trans, struct post_dat
 	}
 
 	// 向下游节点转发 set 操作， 并等待 set 操作返回
-	old_req_datagram = req->req_ptr;
-	req->req_ptr = req;
-	req->node_id = server_instance->server_id;
-	req->done_flag = false;
-	req_msg_ptr = make_basic_msg(&req_msg, req, DHMP_MICA_SEND_INFO_REQUEST);
-
-	// 上游节点主动发起连接， 下游节点是 server
-	dhmp_post_send(find_connect_server_by_nodeID(server_instance->server_id + 1), req_msg_ptr, partition_id);
-	if (IS_MAIN(server_instance->server_type))
+	if (!IS_TAIL(server_instance->server_type))
 	{
-		MICA_TIME_COUNTER_INIT();
-		while(req->done_flag == false)
-			MICA_TIME_LIMITED(req_info->tag, TIMEOUT_LIMIT_MS);
-		//MICA_TIME_COUNTER_CAL("Tag set downstream");
+		old_req_datagram = req->req_ptr;
+		req->req_ptr = req;
+		req->node_id = server_instance->server_id;
+		req->done_flag = false;
+		req_msg_ptr = make_basic_msg(&req_msg, req, DHMP_MICA_SEND_INFO_REQUEST);
+		// 上游节点主动发起连接， 下游节点是 server
+		dhmp_post_send(find_connect_server_by_nodeID(server_instance->server_id + 1), req_msg_ptr, partition_id);
 	}
-	// clock_gettime(CLOCK_MONOTONIC, &end_g);	
 
-	//ERROR_LOG("tag is [%d] partition_id [%d] send 1",req_info->tag, partition_id);
+	if (IS_HEAD(server_instance->server_type))
+	{
+		//MICA_TIME_COUNTER_INIT();
+		while(req->done_flag == false);
+			//MICA_TIME_LIMITED(req_info->tag, TIMEOUT_LIMIT_MS);
+		//MICA_TIME_COUNTER_CAL("Tag set downstream");
+		partition_set_count[req_info->partition_id]++;
+		if (is_all_set_all_get && 
+			partition_set_count[req_info->partition_id] == avg_partition_count_num)
+		{
+			partition_count_set_done_flag[req_info->partition_id] = true;
+		}
+	}
+	else
+	{
+		// 填充 response 报文
+		resp->req_ptr  = old_req_datagram;		    		// 原样返回对方用于消息完成时的报文的判别
+		resp->resp_ptr = resp;							// 自身用于消息完成时报文的判别
+		resp->node_id  = server_instance->server_id;	// 向对端发送自己的 node_id 用于身份辨识
+		resp->info_type = MICA_SET_RESPONSE;
+		resp->info_length = resp_len;
+		resp->done_flag = false;						// request_handler 不关心 done_flag（不需要阻塞）
+		// 先向 主节点/ 客户端 发送回复，节约一次 RTT 的时间
+		resp_msg_ptr = make_basic_msg(&resp_msg, resp, DHMP_MICA_SEND_INFO_RESPONSE);
+		dhmp_post_send(rdma_trans, resp_msg_ptr, partition_id);
+	}
+
 #ifdef MAIN_LOG_DEBUG
 	// if (set_counts >=100)
 	// 	total_set_time += ((((end_g.tv_sec * 1000000000) + end_g.tv_nsec) - ((start_g.tv_sec * 1000000000) + start_g.tv_nsec)));
 	// if (server_instance->server_id == 0 && set_counts>200)
 	// 	ERROR_LOG("[] count[%d] avg time is [%lld]us", set_counts, total_set_time / (US_BASE*(set_counts-100)));
 #endif
-
-	// 填充 response 报文
-	resp->req_ptr  = old_req_datagram;		    		// 原样返回对方用于消息完成时的报文的判别
-	resp->resp_ptr = resp;							// 自身用于消息完成时报文的判别
-	resp->node_id  = server_instance->server_id;	// 向对端发送自己的 node_id 用于身份辨识
-	resp->info_type = MICA_SET_RESPONSE;
-	resp->info_length = resp_len;
-	resp->done_flag = false;						// request_handler 不关心 done_flag（不需要阻塞）
-
-	if (server_instance->server_id !=0)
-	{
-		// 先向 主节点/ 客户端 发送回复，节约一次 RTT 的时间
-		resp_msg_ptr = make_basic_msg(&resp_msg, resp, DHMP_MICA_SEND_INFO_RESPONSE);
-		dhmp_post_send(rdma_trans, resp_msg_ptr, partition_id);
-	}
 }
 
 // 函数前缀没有双下划线的函数是单线程执行的
@@ -972,14 +987,6 @@ void dhmp_send_request_handler(struct dhmp_transport* rdma_trans,
 #ifdef THROUGH_TEST
 			if (op_counts ==0)
 				clock_gettime(CLOCK_MONOTONIC, &start_through);  
-			
-			op_counts++;
-			if (server_instance->server_id == 0 && op_counts == update_num)
-			{
-				clock_gettime(CLOCK_MONOTONIC, &end_through); 
-				total_through_time = ((((end_through.tv_sec * 1000000000) + end_through.tv_nsec) - ((start_through.tv_sec * 1000000000) + start_through.tv_nsec)));
-				ERROR_LOG("set op count [%d], total op count [%d] total time is [%d] us", op_counts, __access_num, total_through_time / 1000);
-			}
 #endif
 			if (!is_get)
 				msg->main_thread_set_id = set_counts; 	// 必须在主线程设置全局唯一的 set_id
@@ -1007,6 +1014,27 @@ void dhmp_send_request_handler(struct dhmp_transport* rdma_trans,
 					}
 				}
 			}
+
+#ifdef THROUGH_TEST
+			op_counts++;
+			if (server_instance->server_id == 0 && op_counts == update_num)
+			{
+				bool done_flag;
+				while (true)
+				{
+					done_flag = true;
+					for (i=0; i<PARTITION_NUMS; i++)
+						done_flag &= partition_count_set_done_flag[i];
+					
+					if (done_flag)
+						break;
+				}
+
+				clock_gettime(CLOCK_MONOTONIC, &end_through); 
+				total_through_time = ((((end_through.tv_sec * 1000000000) + end_through.tv_nsec) - ((start_through.tv_sec * 1000000000) + start_through.tv_nsec)));
+				ERROR_LOG("set op count [%d], total op count [%d] total time is [%d] us", op_counts, __access_num, total_through_time / 1000);
+			}
+#endif
 
 			*is_async = true;
 			break;

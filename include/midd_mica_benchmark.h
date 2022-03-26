@@ -7,7 +7,7 @@
  * @FilePath: /LineKV/include/midd_mica_benchmark.h
  */
 
-#define TEST_KV_NUM 6
+#define TEST_KV_NUM 12
 #define ACCESS_NUM __access_num
 
 extern int __access_num;

@@ -52,7 +52,7 @@ static void dhmp_wc_success_handler(struct ibv_wc* wc)
 			msg->recv_partition_id = recv_partition_id;
 
 			//MICA_TIME_COUNTER_INIT();
-			clock_gettime(CLOCK_MONOTONIC, &start);
+			// clock_gettime(CLOCK_MONOTONIC, &start);
 			dhmp_wc_recv_handler(rdma_trans, msg, &is_async);
 			// dhmp_post_recv 需要放到多线程的末尾去处理
 			// 发送双边操作的数据大小不能超过  SINGLE_NORM_RECV_REGION （16MB）

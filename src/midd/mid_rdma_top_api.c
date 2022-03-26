@@ -201,10 +201,10 @@ mica_set_remote(uint8_t current_alloc_id,  uint64_t key_hash, const uint8_t *key
 
 	if (is_async == false)
 	{
-		DEFINE_STACK_TIMER();
-		MICA_TIME_COUNTER_INIT();
-		while(req_msg->done_flag == false)
-			MICA_TIME_LIMITED(tag, TIMEOUT_LIMIT_MS);
+		//DEFINE_STACK_TIMER();
+		//MICA_TIME_COUNTER_INIT();
+		while(req_msg->done_flag == false);
+			//MICA_TIME_LIMITED(tag, TIMEOUT_LIMIT_MS);
 		//MICA_TIME_COUNTER_CAL("mica_set_remote");
 
 		if (req_data->is_success == false)
