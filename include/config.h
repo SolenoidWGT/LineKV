@@ -21,7 +21,7 @@
 // #define MEHCACHED_VERBOSE
 
 // use counters to collect statistics
-#define MEHCACHED_COLLECT_STATS
+// #define MEHCACHED_COLLECT_STATS
 
 
 // support for concurrent access

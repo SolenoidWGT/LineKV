@@ -19,6 +19,7 @@ int end_round=0;
 bool get_is_more;
 int op_gaps[4];
 int little_idx=-1;
+bool is_all_set_all_get =false;
 
 int main_node_is_readable;
 enum WORK_LOAD_DISTRIBUTED workload_type;

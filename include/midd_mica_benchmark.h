@@ -23,6 +23,7 @@ extern struct test_kv kvs_group[TEST_KV_NUM];
 extern int op_gaps[4];
 extern int little_idx;
 extern int end_round;
+extern bool is_all_set_all_get;
 
 void pick_zipfian(int max_num);
 void pick_uniform(int max_num);

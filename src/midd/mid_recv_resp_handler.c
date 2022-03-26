@@ -63,6 +63,20 @@ struct dhmp_msg** get_msgs_group;
 static void  check_get_op(struct dhmp_msg* msg, size_t partition_id);
 
 
+/*
+	distribute 任务缓存
+	distribute 作为主线程被阻塞的时间越短越好
+*/
+struct list_head  wait_distribute_job_list;
+uint64_t wait_distribute_job_num=0;
+
+static
+bool
+partition_try_lock(volatile uint64_t * lock)
+{
+	return __sync_bool_compare_and_swap(lock, 0UL, 1UL);
+}
+
 static
 void
 partition_lock(volatile uint64_t * lock)
@@ -591,18 +605,18 @@ make_basic_msg(struct dhmp_msg * res_msg, struct post_datagram *resp, enum dhmp_
 
 int init_mulit_server_work_thread()
 {
-	
 	bool recv_mulit_threads_enable=true;
 	int i, retval;
 	cpu_set_t cpuset;
+	INIT_LIST_HEAD(&wait_distribute_job_list);
 	memset(&(mica_work_context_mgr[0]), 0, sizeof(struct mica_work_context));
 	memset(&(mica_work_context_mgr[1]), 0, sizeof(struct mica_work_context));
 
 	
 	for (i=0; i<PARTITION_NUMS; i++)
 	{
-		// CPU_ZERO(&cpuset);
-		// CPU_SET(i, &cpuset);
+		CPU_ZERO(&cpuset);
+		CPU_SET(i, &cpuset);
 		thread_init_data *data = (thread_init_data *) malloc(sizeof(thread_init_data));
 		data->partition_id = i;
 		data->thread_type = (enum dhmp_msg_type) DHMP_MICA_SEND_INFO_REQUEST;
@@ -616,6 +630,11 @@ int init_mulit_server_work_thread()
 			ERROR_LOG("pthread create error.");
 			return -1;
 		}
+		// 绑核
+		retval = pthread_setaffinity_np(mica_work_context_mgr[DHMP_MICA_SEND_INFO_REQUEST].threads[i], sizeof(cpu_set_t), &cpuset);
+		if (retval != 0)
+			handle_error_en(retval, "pthread_setaffinity_np");
+		INFO_LOG("set affinity cpu [%d] to thread [%d]", i, i);
 	}
 }
 
@@ -660,6 +679,7 @@ void distribute_partition_resp(int partition_id, struct dhmp_transport* rdma_tra
 	struct post_datagram * req = (struct post_datagram*)(msg->data);
 	struct timespec  start_g, end_g, start_l, end_l;
 	long long time1,time2,time3, time4=0;
+	int retry_count = 0;
 
 	switch (msg->msg_type)
 	{
@@ -687,7 +707,7 @@ void distribute_partition_resp(int partition_id, struct dhmp_transport* rdma_tra
 		__dhmp_wc_recv_handler(rdma_trans, msg, PARTITION_NUMS, &need_post_recv);
 
 		// 间歇性的执行 get操作，暂时中断当前的写操作
-		if (msg->main_thread_set_id != -1)
+		if (!is_all_set_all_get && msg->main_thread_set_id != -1)
 			check_get_op(msg, partition_id);
 
 		if (need_post_recv)
@@ -702,18 +722,42 @@ void distribute_partition_resp(int partition_id, struct dhmp_transport* rdma_tra
 		// 如果去掉速度限制，则链表空指针的断言会失败，应该还是有线程间同步bug
 		for (;;)
 		{
-			if (partition_work_nums[partition_id] <= 50)
+			if (partition_work_nums[partition_id] <= 50 || retry_count > 1000)
 				break;
+			else
+				retry_count++;
 		}
-		// while(partition_work_nums[partition_id] != 0);
 
+		retry_count=0;
 		partition_lock(lock);
-		//Assert(msg->list_anchor.next != LIST_POISON1 && msg->list_anchor.prev!= LIST_POISON2);
 		list_add(&msg->list_anchor,  &main_thread_send_list[partition_id]);
 		partition_work_nums[partition_id]++;
-		//Assert(msg->list_anchor.next != LIST_POISON1 && msg->list_anchor.prev!= LIST_POISON2);
 		partition_unlock(lock);
 
+		// if (wait_distribute_job_num <= 50)
+		// {
+		// 	if (!partition_try_lock(lock))
+		// 	{
+		// 		// 上锁失败，将任务加入暂存链表
+		// 		wait_distribute_job_list;
+		// 		list_add(&msg->list_anchor, &wait_distribute_job_list);
+		// 		wait_distribute_job_num++;
+		// 	}
+		// 	else
+		// 	{
+		// 		// 上锁成功
+		// 		list_add(&msg->list_anchor,  &main_thread_send_list[partition_id]);
+		// 		partition_work_nums[partition_id]++;
+		// 		partition_unlock(lock);
+		// 	}
+		// }
+		// else
+		// {
+		// 	partition_lock(lock);
+		// 	list_add(&msg->list_anchor,  &main_thread_send_list[partition_id]);
+		// 	partition_work_nums[partition_id]++;
+		// 	partition_unlock(lock);	
+		// }
 	}
 }
 
@@ -728,6 +772,7 @@ void* mica_work_thread(void *data)
 	long long time1,time2,time3, time4=0;
 	struct dhmp_msg* msg=NULL, *temp_msg=NULL;
 	int msg_nums =0;
+	int retry_count=0;
 
 	partition_id = init_data->partition_id;
 	type = init_data->thread_type;
@@ -752,8 +797,9 @@ void* mica_work_thread(void *data)
 	while (true)
 	{
 		//memory_barrier();
-		if (partition_work_nums[partition_id] != 0)
+		if (partition_work_nums[partition_id] >= 0 || retry_count >1000)
 		{
+			retry_count = 0;
 			partition_lock(lock);
 			list_replace(&main_thread_send_list[partition_id], &partition_local_send_list[partition_id]); 
 			INIT_LIST_HEAD(&main_thread_send_list[partition_id]);   
@@ -776,12 +822,14 @@ void* mica_work_thread(void *data)
 				}
 
 				// 间歇性的执行 get操作，暂时中断当前的写操作
-				if (msg->main_thread_set_id != -1)
+				if (!is_all_set_all_get && msg->main_thread_set_id != -1)
 					check_get_op(msg, partition_id);
 			}
 			// 将本地头节点重置为空
 			INIT_LIST_HEAD(&partition_local_send_list[partition_id]);
 		}
+		else
+			retry_count++;
 	}
 }
 
@@ -823,7 +871,7 @@ dhmp_mica_set_request_handler(struct dhmp_transport* rdma_trans, struct post_dat
 
 	// 注意！，此处不需要调用 warpper 函数
 	// 因为传递过来的 value 地址已经添加好头部和尾部了，长度也已经加上了头部和尾部的长度。
-	MICA_TIME_COUNTER_INIT();
+	// MICA_TIME_COUNTER_INIT();
 	item = mehcached_set(req_info->current_alloc_id,
 						table,
 						req_info->key_hash,
@@ -836,13 +884,13 @@ dhmp_mica_set_request_handler(struct dhmp_transport* rdma_trans, struct post_dat
 						&is_update,
 						&is_maintable,
 						NULL);
-	//MICA_TIME_COUNTER_CAL("[]->[mehcached_set]")
+	// //MICA_TIME_COUNTER_CAL("[]->[mehcached_set]")
 	
-	// 大概上，用set函数返回的时间作为各个 set 操作的时间顺序
-	clock_gettime(CLOCK_MONOTONIC, &time_set);   
+	// // 大概上，用set函数返回的时间作为各个 set 操作的时间顺序
+	// clock_gettime(CLOCK_MONOTONIC, &time_set);   
 	
-	if (IS_REPLICA(server_instance->server_type))
-		Assert(is_maintable == true);
+	// if (IS_REPLICA(server_instance->server_type))
+	// 	Assert(is_maintable == true);
 
 	set_result->partition_id = req_info->partition_id;
 	if (item != NULL)
@@ -879,7 +927,7 @@ dhmp_mica_set_request_handler(struct dhmp_transport* rdma_trans, struct post_dat
 			MICA_TIME_LIMITED(req_info->tag, TIMEOUT_LIMIT_MS);
 		//MICA_TIME_COUNTER_CAL("Tag set downstream");
 	}
-	clock_gettime(CLOCK_MONOTONIC, &end_g);	
+	// clock_gettime(CLOCK_MONOTONIC, &end_g);	
 
 	//ERROR_LOG("tag is [%d] partition_id [%d] send 1",req_info->tag, partition_id);
 #ifdef MAIN_LOG_DEBUG
@@ -903,7 +951,6 @@ dhmp_mica_set_request_handler(struct dhmp_transport* rdma_trans, struct post_dat
 		resp_msg_ptr = make_basic_msg(&resp_msg, resp, DHMP_MICA_SEND_INFO_RESPONSE);
 		dhmp_post_send(rdma_trans, resp_msg_ptr, partition_id);
 	}
-	//ERROR_LOG("tag is [%d] partition_id [%d] send 2",req_info->tag, partition_id);
 }
 
 // 函数前缀没有双下划线的函数是单线程执行的
@@ -1013,7 +1060,6 @@ check_get_op(struct dhmp_msg* msg, size_t partition_id)
 	bool need_post_recv;
 	int i, op_gap;
 	// get_is_more 为真 为假 现在 都可能执行这个函数
-
 	// 如果set操作多，那么可以由set操作触发get
 	if (!(server_instance->server_id == 0 && !main_node_is_readable))
 	{

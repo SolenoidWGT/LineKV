@@ -30,7 +30,7 @@ struct dhmp_msg* all_access_set_group;
 static size_t SERVER_ID= (size_t)-1;
 
 static void free_test_date();
-bool is_all_set_all_get =false;
+
 // bool is_integer(double x)
 // {
 //     int xi = (int)x;
@@ -116,7 +116,7 @@ int main(int argc,char *argv[])
             {
                 INFO_LOG(" RW_TATE is [%s]", argv[i]);
                 read_num = 0;
-                update_num = 3000;
+                update_num = 5000;
                 get_is_more = false;
                 is_all_set_all_get = true;
             }
@@ -132,7 +132,7 @@ int main(int argc,char *argv[])
             else if(strcmp(argv[i], "0.0") == 0)
             {
                 INFO_LOG(" RW_TATE is [%s]", argv[i]);
-                read_num = 3000;
+                read_num = 5000;
                 update_num = 1;     // 至少有一个写操作
                 get_is_more = true;
                 is_all_set_all_get = true;
