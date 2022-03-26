@@ -257,6 +257,7 @@ int main(int argc,char *argv[])
             final_get_num = op_gaps[0] * __read_num_per_node;
             get_is_more = false;
             ERROR_LOG("FINALLY: update_num[%d], __read_num_per_node[%d], left_op_nums:[%d],  final_get_num:[%d], get_is_more[%d]",update_num, __read_num_per_node, left_op_nums, final_get_num ,get_is_more);
+            Assert(little_idx != -1 && little_idx < end_round);
         }
 
         // 更新最终的读数量
@@ -280,7 +281,7 @@ int main(int argc,char *argv[])
         // 更新最终的 access 数量
         __access_num = read_num + update_num;
     }
-    Assert(little_idx != -1 && little_idx < end_round);
+
     // op_gap;
     generate_local_get_mgs();
     client_mgr = dhmp_client_init(INIT_DHMP_CLIENT_BUFF_SIZE, false);
@@ -334,7 +335,11 @@ pack_test_set_resq(struct test_kv * kvs, int tag)
 	req_data->overwrite = true;
 	req_data->is_update = false;
 	req_data->tag = (size_t)tag;
-    req_data->partition_id = (int) (*((size_t*)kvs->key)  % (PARTITION_NUMS));
+
+   // req_data->partition_id = (int) (*((size_t*)kvs->key)  % (PARTITION_NUMS));
+    size_t tmp_key = *(size_t*)(kvs->key);
+	req_data->partition_id = (int) ( (int)(tmp_key>>16)  % (int)(PARTITION_NUMS));
+
 	memcpy(&(req_data->data), kvs->key, kvs->true_key_length);		// copy key
     memcpy(( (void*)&(req_data->data) + key_length), kvs->value,  kvs->true_value_length);	
 
@@ -383,9 +388,12 @@ pack_test_get_resq(struct test_kv * kvs, int tag, size_t expect_length)
 	req_data->key_hash = kvs->key_hash;
 	req_data->key_length = key_length;
 	req_data->get_resp = get_resp;
-	req_data->peer_max_recv_buff_length = (size_t)expect_length;
-	req_data->partition_id = (int) (*((size_t*)kvs->key)  % (PARTITION_NUMS));
-	req_data->tag = (size_t)tag;
+    req_data->peer_max_recv_buff_length = (size_t)expect_length;
+
+    size_t tmp_key = *(size_t*)(kvs->key);
+	req_data->partition_id = (int) ( (int)(tmp_key>>16)  % (int)(PARTITION_NUMS));
+	
+    req_data->tag = (size_t)tag;
 	data_addr = (void*)req_data + offsetof(struct dhmp_mica_get_request, data);
 	memcpy(data_addr, kvs->key, GET_TRUE_KEY_LEN(key_length));		// copy key
 

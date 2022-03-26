@@ -94,6 +94,7 @@ generate_test_data(size_t key_offset, size_t val_offset, size_t value_length, si
     for (i = 0; i < kv_nums; i++)
     {
         size_t key = i;
+        key = key << 16;
 
         kvs_group[i].true_key_length = sizeof(key);
         kvs_group[i].true_value_length = value_length;

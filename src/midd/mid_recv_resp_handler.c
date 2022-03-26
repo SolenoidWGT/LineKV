@@ -702,7 +702,7 @@ void distribute_partition_resp(int partition_id, struct dhmp_transport* rdma_tra
 		// 如果去掉速度限制，则链表空指针的断言会失败，应该还是有线程间同步bug
 		for (;;)
 		{
-			if (partition_work_nums[partition_id] <= 20)
+			if (partition_work_nums[partition_id] <= 50)
 				break;
 		}
 		// while(partition_work_nums[partition_id] != 0);
@@ -943,9 +943,8 @@ void dhmp_send_request_handler(struct dhmp_transport* rdma_trans,
 			// 分区的操作需要分布到特定的线程去执行
 			if (!is_get)
 			{
-				if (little_idx != 0)
+				if (get_is_more && little_idx != 0)
 				{
-					Assert(get_is_more);
 					int op_gap = op_gaps[little_idx-1];
 					if (!(server_instance->server_id == 0 && !main_node_is_readable))
 					{
