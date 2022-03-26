@@ -106,6 +106,7 @@ static uint64_t hash(const uint8_t *key, size_t len)
     //return sbox_hash(key, len);
     //return hash_md4(key, len);
     //return CityHashCrc128((const char *)key, len).first;
-    return CityHash64((const char *)key, len);
+    return *(uint64_t*)key;
+    //return CityHash64((const char *)key, len);
 }
 

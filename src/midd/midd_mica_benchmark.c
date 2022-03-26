@@ -95,6 +95,7 @@ generate_test_data(size_t key_offset, size_t val_offset, size_t value_length, si
     for (i = 0; i < kv_nums; i++)
     {
         size_t key = i;
+        key = key << 16;
         // size_t key = 314156;
         // size_t value = i + offset;
         // uint64_t key_hash = hash((const uint8_t *)&key, sizeof(key));

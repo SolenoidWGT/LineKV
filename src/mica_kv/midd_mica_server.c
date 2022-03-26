@@ -341,7 +341,10 @@ pack_test_set_resq(struct test_kv * kvs, int tag)
 	req_data->overwrite = true;
 	req_data->is_update = false;
 	req_data->tag = (size_t)tag;
-    req_data->partition_id = (int) (*((size_t*)kvs->key)  % (PARTITION_NUMS));
+    //req_data->partition_id = (int) (*((size_t*)kvs->key)  % (PARTITION_NUMS));
+    size_t tmp_key = *(size_t*)(kvs->key);
+	req_data->partition_id = (int) ( (int)(tmp_key>>16)  % (int)(PARTITION_NUMS));
+
 	memcpy(&(req_data->data), kvs->key, kvs->true_key_length);		// copy key
     memcpy(( (void*)&(req_data->data) + key_length), kvs->value,  kvs->true_value_length);	
 
@@ -391,7 +394,10 @@ pack_test_get_resq(struct test_kv * kvs, int tag, size_t expect_length)
 	req_data->key_length = key_length;
 	req_data->get_resp = get_resp;
 	req_data->peer_max_recv_buff_length = (size_t)expect_length;
-	req_data->partition_id = (int) (*((size_t*)kvs->key)  % (PARTITION_NUMS));
+	//req_data->partition_id = (int) (*((size_t*)kvs->key)  % (PARTITION_NUMS));
+    size_t tmp_key = *(size_t*)(kvs->key);
+	req_data->partition_id = (int) ( (int)(tmp_key>>16)  % (int)(PARTITION_NUMS));
+
 	req_data->tag = (size_t)tag;
 	data_addr = (void*)req_data + offsetof(struct dhmp_mica_get_request, data);
 	memcpy(data_addr, kvs->key, GET_TRUE_KEY_LEN(key_length));		// copy key

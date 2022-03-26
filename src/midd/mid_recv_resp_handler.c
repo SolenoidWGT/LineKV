@@ -691,7 +691,7 @@ void distribute_partition_resp(int partition_id, struct dhmp_transport* rdma_tra
 		// 如果去掉速度限制，则链表空指针的断言会失败，应该还是有线程间同步bug
 		for (;;)
 		{
-			if (partition_work_nums[partition_id] <= 20)
+			if (partition_work_nums[partition_id] <= 50)
 				break;
 		}
 		// while(partition_work_nums[partition_id] != 0);
@@ -914,7 +914,7 @@ dhmp_mica_set_request_handler(struct dhmp_transport* rdma_trans, struct post_dat
 		req->node_id = MAIN;
 
 		req_msg.msg_type = DHMP_MICA_SEND_INFO_REQUEST;
-		req_msg.data_size = DATAGRAM_ALL_LEN(resp->info_length);
+		req_msg.data_size = DATAGRAM_ALL_LEN(req->info_length);
 		req_msg.data= req;
 
 		// make_basic_msg(&req_msg, req, DHMP_MICA_SEND_INFO_REQUEST);
