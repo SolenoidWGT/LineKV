@@ -287,10 +287,10 @@ int dhmp_rdma_write (struct dhmp_transport* rdma_trans,
 	struct dhmp_send_mr* smr=NULL;
 	int err=0;
 	
-	clock_gettime(CLOCK_MONOTONIC, &start_time);
+	//clock_gettime(CLOCK_MONOTONIC, &start_time);
 	smr=dhmp_get_mr_from_send_list(rdma_trans, local_addr, (int)length);
-	clock_gettime(CLOCK_MONOTONIC, &end_time);
-	get_mr_time += ((end_time.tv_sec * 1000000000) + end_time.tv_nsec) - ((start_time.tv_sec * 1000000000) + start_time.tv_nsec);
+	//clock_gettime(CLOCK_MONOTONIC, &end_time);
+	//get_mr_time += ((end_time.tv_sec * 1000000000) + end_time.tv_nsec) - ((start_time.tv_sec * 1000000000) + start_time.tv_nsec);
 	//INFO_LOG("get_mr_time: %ld", get_mr_time);
 						
 	write_task=dhmp_write_task_create(rdma_trans, smr, (int)length);
@@ -336,10 +336,10 @@ int dhmp_rdma_write (struct dhmp_transport* rdma_trans,
 		exit(-1);
 		goto error;
 	}
-	DEFINE_STACK_TIMER();
-	MICA_TIME_COUNTER_INIT();
+	// DEFINE_STACK_TIMER();
+	// MICA_TIME_COUNTER_INIT();
 	while (!write_task->done_flag);
-		MICA_TIME_LIMITED(0, TIMEOUT_LIMIT_MS);
+		// MICA_TIME_LIMITED(0, TIMEOUT_LIMIT_MS);
 	// DEBUG_LOG("after read_mr[%d] addr content is %s", rdma_trans->node_id, client_mgr->read_mr[rdma_trans->node_id]->mr->addr);
 
 #ifdef DHMP_MR_REUSE_POLICY

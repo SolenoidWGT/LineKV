@@ -13,7 +13,7 @@
 // limitations under the License.
 
 #pragma once
-
+#include <unistd.h>
 #include "basic_types.h"
 
 #ifdef __cplusplus

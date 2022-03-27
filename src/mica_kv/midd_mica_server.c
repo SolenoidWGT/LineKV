@@ -669,21 +669,27 @@ void workloada_server()
         idx_array[i] = i;
     }
 
-    for (i=0; i<PARTITION_NUMS; i++)
+    for (i=0; i<(int)PARTITION_NUMS; i++)
         ERROR_LOG("partition id [%d] counts [%d]", i , partition_req_count_array[i]);
     //exit(0);
 
     struct timespec start_through, end_through;
     long long int total_set_through_time=0;
     clock_gettime(CLOCK_MONOTONIC, &start_through);
-    for(i=0;i < update_num ;i++)
-    {
-        bool is_async;
-        dhmp_send_request_handler(NULL, set_msgs_group[i], &is_async, 0, 0);
-    }
+    // int repeat=0;
+    // while (repeat<1000)
+    // {
+        for(i=0;i < update_num ;i++)
+        {
+            bool is_async;
+            dhmp_send_request_handler(NULL, set_msgs_group[i], &is_async, 0, 0);
+        }
+    //     repeat++;
+    // }
+
     clock_gettime(CLOCK_MONOTONIC, &end_through);
     total_set_through_time = ((((end_through.tv_sec * 1000000000) + end_through.tv_nsec) - ((start_through.tv_sec * 1000000000) + start_through.tv_nsec)));
-    ERROR_LOG("[set] count[%d] through_out time is [%lld] us", update_num, total_set_through_time /1000);
+    //ERROR_LOG("[set] count[%d] through_out time is [%lld] us", update_num, total_set_through_time /1000);
 
     // 等待测试结束
     sleep(10);

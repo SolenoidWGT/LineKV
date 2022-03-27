@@ -9,7 +9,7 @@
 
 
 #define ACCESS_NUM __access_num
-#define TEST_KV_NUM 6
+#define TEST_KV_NUM 12
 
 extern int __access_num;
 extern int rand_num[TEST_KV_NUM];

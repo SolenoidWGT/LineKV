@@ -41,7 +41,10 @@ micaserver_get_cliMR(struct replica_mappings  *resp_mapping_ptr, size_t target_i
 	req_data = (struct dhmp_mica_get_cli_MR_request *) DATA_ADDR(base, 0);
 
 	// 填充公共报文
-	req_msg->node_id = server_instance->server_id;	 // 向对端发送自己的 node_id 用于身份辨识
+	// if (server_instance == NULL)
+	// 	req_msg->node_id = 1;
+	// else
+		req_msg->node_id = server_instance->server_id;	 // 向对端发送自己的 node_id 用于身份辨识
 	req_msg->req_ptr = req_msg;
 	req_msg->resp_ptr = NULL;
 	req_msg->done_flag = false;

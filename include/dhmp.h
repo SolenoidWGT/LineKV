@@ -415,9 +415,11 @@ extern volatile bool replica_is_ready;
 		long long mica_total_time_ns = (((end.tv_sec * 1000000000) + end.tv_nsec) - ((start.tv_sec * 1000000000) + start.tv_nsec)); \
 	}while(0);
 
+/*
+if (IS_MAIN(server_instance->server_type))				\
+	ERROR_LOG("[%s] exec time is [%lld] ns", msg_str, mica_total_time_ns); 	\
+*/
 
-		// if (IS_MAIN(server_instance->server_type))				\
-		// 	ERROR_LOG("[%s] exec time is [%lld] ns", msg_str, mica_total_time_ns); 	\
 
 #define MICA_TIME_COUNTER_CAL_PRINTF(msg_str)					\
 	{															\

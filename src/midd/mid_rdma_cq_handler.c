@@ -67,7 +67,6 @@ static void dhmp_wc_success_handler(struct ibv_wc* wc)
 
 			break;
 		case IBV_WC_RECV:
-			MICA_TIME_COUNTER_INIT();
 			msg = (struct dhmp_msg *) malloc(sizeof(struct dhmp_msg));
 			/*read the msg content from the task_ptr sge addr*/
 			msg->msg_type=*(enum dhmp_msg_type*)task_ptr->sge.addr;
@@ -78,11 +77,9 @@ static void dhmp_wc_success_handler(struct ibv_wc* wc)
 			msg->trans = rdma_trans;
 			msg->recv_partition_id = recv_partition_id;
 
-			//MICA_TIME_COUNTER_INIT();
-			clock_gettime(CLOCK_MONOTONIC, &start);
-			if (msg->recv_partition_id == 0)
-				MICA_TIME_COUNTER_CAL("IBV_WC_RECV init");
-			dhmp_wc_recv_handler(rdma_trans, msg, &is_async,start.tv_sec, start.tv_nsec);
+			// if (msg->recv_partition_id == 0)
+			// 	MICA_TIME_COUNTER_CAL("IBV_WC_RECV init");
+			dhmp_wc_recv_handler(rdma_trans, msg, &is_async, 0, 0);
 			// dhmp_post_recv 需要放到多线程的末尾去处理
 			// 发送双边操作的数据大小不能超过  SINGLE_NORM_RECV_REGION （16MB）
 			if (! is_async)
