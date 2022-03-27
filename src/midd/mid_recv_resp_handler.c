@@ -706,7 +706,7 @@ void distribute_partition_resp(int partition_id, struct dhmp_transport* rdma_tra
 		// 如果去掉速度限制，则链表空指针的断言会失败，应该还是有线程间同步bug
 		for (;;)
 		{
-			if (partition_work_nums[partition_id] <= 50 || retry_count >= 500)
+			if (partition_work_nums[partition_id] <= 50 ) // || retry_count >= 500
 				break;
 			else
 				retry_count++;
@@ -759,7 +759,7 @@ void* mica_work_thread(void *data)
 	while (true)
 	{
 		//memory_barrier();
-		if (partition_work_nums[partition_id] == 50 || retry_count>=1000)
+		if (partition_work_nums[partition_id] >=0 || retry_count>=1000)
 		{
 			retry_count=0;
 			partition_lock(lock);
@@ -822,7 +822,7 @@ void
 dhmp_mica_set_request_handler(struct dhmp_transport* rdma_trans, struct post_datagram *req, int partition_id)
 {
 	struct timespec start_g, end_g;
-	clock_gettime(CLOCK_MONOTONIC, &start_g);	
+	//clock_gettime(CLOCK_MONOTONIC, &start_g);	
 	struct post_datagram *resp;
 	struct dhmp_mica_set_request  * req_info;
 	struct dhmp_mica_set_response * set_result;
@@ -875,7 +875,7 @@ dhmp_mica_set_request_handler(struct dhmp_transport* rdma_trans, struct post_dat
 		// MICA_TIME_COUNTER_CAL("[dhmp_mica_set_request_handler]->[mehcached_set]")
 		
 		// 大概上，用set函数返回的时间作为各个 set 操作的时间顺序
-		clock_gettime(CLOCK_MONOTONIC, &time_set);   
+		//clock_gettime(CLOCK_MONOTONIC, &time_set);   
 		
 		// Assert(is_update == req_info->is_update);
 		if (IS_REPLICA(server_instance->server_type))
@@ -935,7 +935,8 @@ dhmp_mica_set_request_handler(struct dhmp_transport* rdma_trans, struct post_dat
 		req->node_id = MAIN;
 
 		req_msg.msg_type = DHMP_MICA_SEND_INFO_REQUEST;
-		req_msg.data_size = DATAGRAM_ALL_LEN(req->info_length);
+		req_msg.data_size = sizeof(struct post_datagram) + sizeof(struct dhmp_mica_set_request)\
+							+ req_info->key_length + req_info->value_length;
 		req_msg.data= req;
 
 		// make_basic_msg(&req_msg, req, DHMP_MICA_SEND_INFO_REQUEST);
@@ -945,12 +946,12 @@ dhmp_mica_set_request_handler(struct dhmp_transport* rdma_trans, struct post_dat
 		
 		// INFO_LOG("Main node send onePC tag[%ld]", req_info->tag);
 
-		MICA_TIME_COUNTER_INIT();
-		while(req->reuse_done_count != 0)
-			MICA_TIME_LIMITED(req_info->tag, TIMEOUT_LIMIT_MS);
+		//MICA_TIME_COUNTER_INIT();
+		while(req->reuse_done_count != 0);
+			//MICA_TIME_LIMITED(req_info->tag, TIMEOUT_LIMIT_MS);
 
 		INFO_LOG("Main node recv all 1PC, tag [%d]", req_info->tag);
-		clock_gettime(CLOCK_MONOTONIC, &end_g);	
+		//clock_gettime(CLOCK_MONOTONIC, &end_g);	
 
 		// 我们全部使用本地读写，不使用客户端
 		// make_basic_msg(&resp_msg, resp, DHMP_MICA_SEND_INFO_RESPONSE);
@@ -970,9 +971,9 @@ dhmp_mica_set_request_handler(struct dhmp_transport* rdma_trans, struct post_dat
 
 		// INFO_LOG("Main node send twoPC tag[%ld]", req_info->tag);
 
-		MICA_TIME_COUNTER_INIT();
-		while(req->reuse_done_count != 0 )
-			MICA_TIME_LIMITED(req_info->tag, TIMEOUT_LIMIT_MS);
+		//MICA_TIME_COUNTER_INIT();
+		while(req->reuse_done_count != 0 );
+			//MICA_TIME_LIMITED(req_info->tag, TIMEOUT_LIMIT_MS);
 
 		// INFO_LOG("Main node recv all 2PC, tag [%d]", req_info->tag);
 
@@ -1055,7 +1056,7 @@ void dhmp_send_request_handler(struct dhmp_transport* rdma_trans,
 				clock_gettime(CLOCK_MONOTONIC, &start_through);  
 #endif				
 			// 分区的操作需要分布到特定的线程去执行
-			clock_gettime(CLOCK_MONOTONIC, &end);
+			//clock_gettime(CLOCK_MONOTONIC, &end);
 			//INFO_LOG("Distribute [%ld] ns", (((end.tv_sec * 1000000000) + end.tv_nsec) - ((time_start1 * 1000000000) + time_start2)));
 			if (!is_get)
 				msg->main_thread_set_id = set_counts; 	// 必须在主线程设置全局唯一的 set_id

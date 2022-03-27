@@ -17,8 +17,8 @@
 /*recv region include poll recv region,normal recv region*/
 // 由于我们初始化时候需要交换大量的注册地址信息，目前只是通过一个 send/recv 完成，如果
 // recv_region 太小，就会报 IBV_WC_LOC_LEN_ERR (1) - Local Length Error 的错误
-#define SINGLE_POLL_RECV_REGION (64*1024)
-#define SINGLE_NORM_RECV_REGION (64*1024)
+#define SINGLE_POLL_RECV_REGION (2*64*1024)
+#define SINGLE_NORM_RECV_REGION (2*64*1024)
 
 // 函数前缀没有双下划线的函数是单线程执行的
 void dhmp_wc_recv_handler(struct dhmp_transport* rdma_trans, struct dhmp_msg* msg, bool *is_async);

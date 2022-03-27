@@ -75,7 +75,7 @@ struct dhmp_task* dhmp_send_task_create(struct dhmp_transport* rdma_trans,
 	// 目前dhmp中post send 使用的是一个环形缓冲区
 	if(send_mr->cur_pos+send_task->sge.length>SEND_REGION_SIZE)
 	{
-		ERROR_LOG("dhmp reuse send_buffer!");
+		//ERROR_LOG("dhmp reuse send_buffer!");
 		send_mr->cur_pos=0;
 	}
 
