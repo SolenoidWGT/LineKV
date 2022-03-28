@@ -399,7 +399,7 @@ extern volatile bool replica_is_ready;
 	{															\
 		clock_gettime(CLOCK_MONOTONIC, &end);			    	\
 		long long mica_total_time_ns = (((end.tv_sec * 1000000000) + end.tv_nsec) - ((start.tv_sec * 1000000000) + start.tv_nsec)); \
-		INFO_LOG("[%s] exec time is [%lld] us", msg_str, mica_total_time_ns / US_BASE); 	\
+		ERROR_LOG("[%s] exec time is [%lld] ns", msg_str, mica_total_time_ns); 	\
 	}while(0);
 
 #define MICA_TIME_COUNTER_CAL_PRINTF(msg_str)					\
@@ -464,5 +464,9 @@ void dhmp_send_request_handler(struct dhmp_transport* rdma_trans,
 
 extern struct dhmp_msg** get_msgs_group;
 
-#define THROUGH_TEST
+// #define PERF_TEST 1
+#define THROUGH_TEST 1
+// #define MAIN_LOG_DEBUG_LATENCE 1
+// #define DHMP_POST_SEND_LATENCE 
+
 #endif

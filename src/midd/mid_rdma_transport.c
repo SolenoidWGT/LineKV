@@ -101,7 +101,7 @@ void dhmp_post_send(struct dhmp_transport* rdma_trans, struct dhmp_msg* msg_ptr,
 
 	err=ibv_post_send ( rdma_trans->qp, &send_wr, &bad_wr );
 	if ( err )
-		ERROR_LOG ( "ibv_post_send error." );
+		ERROR_LOG ( "ibv_post_send error[%d]. [%s]" , err, strerror(err));
 }
 
 /*

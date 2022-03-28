@@ -162,8 +162,7 @@ struct dhmp_client *  dhmp_client_init(size_t buffer_size, bool is_mica_cli)
 	// 客户端主动和主节点建立连接 
 	if (!is_mica_cli)
 	{
-		if(IS_REPLICA(server_instance->server_type) && 
-			server_instance->server_id != server_instance->node_nums-1)
+		if(!IS_TAIL(server_instance->server_type))
 		{
 			// 中间节点需要主动和下游节点建立rdma连接，只有下游节点是中间节点的server
 			int next_id = server_instance->server_id+1;
@@ -178,6 +177,22 @@ struct dhmp_client *  dhmp_client_init(size_t buffer_size, bool is_mica_cli)
 			client_mgr->connect_trans[next_id]->node_id = next_id;
 			client_mgr->read_mr[next_id] = init_read_mr(buffer_size, client_mgr->connect_trans[next_id]->device->pd);	
 		}
+
+		// if (IS_HEAD(server_instance->server_type))
+		// {
+		// 	int nid=1;
+		// 	for(; nid <server_instance->config.nets_cnt; nid++)
+		// 	{
+		// 		client_mgr->connect_trans[nid] = dhmp_connect(nid);
+		// 		if(!client_mgr->connect_trans[nid]){
+		// 			ERROR_LOG("create the [%d]-th transport error.",nid);
+		// 			exit(0);
+		// 		}
+		// 		client_mgr->connect_trans[nid]->is_active = true;
+		// 		client_mgr->connect_trans[nid]->node_id = nid;
+		// 		client_mgr->read_mr[nid] = init_read_mr(buffer_size, client_mgr->connect_trans[nid]->device->pd);		
+		// 	}
+		// }
 	}
 
 	/* 初始化client段全局对象 */

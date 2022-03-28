@@ -18,7 +18,7 @@ int read_num, update_num;
 int end_round=0;
 bool get_is_more;
 int op_gaps[4];
-int little_idx=-1;
+int little_idx;
 bool is_all_set_all_get =false;
 
 int main_node_is_readable;

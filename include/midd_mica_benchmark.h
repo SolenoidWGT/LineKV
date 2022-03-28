@@ -7,7 +7,7 @@
  * @FilePath: /LineKV/include/midd_mica_benchmark.h
  */
 
-#define TEST_KV_NUM 12
+#define TEST_KV_NUM 6
 #define ACCESS_NUM __access_num
 
 extern int __access_num;
@@ -24,6 +24,8 @@ extern int op_gaps[4];
 extern int little_idx;
 extern int end_round;
 extern bool is_all_set_all_get;
+extern size_t SERVER_ID;
+extern int avg_partition_count_num;
 
 void pick_zipfian(int max_num);
 void pick_uniform(int max_num);
