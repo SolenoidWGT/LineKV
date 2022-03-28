@@ -284,6 +284,8 @@ int main(int argc,char *argv[])
     client_mgr = dhmp_client_init(INIT_DHMP_CLIENT_BUFF_SIZE, false);
     Assert(server_instance);
     Assert(client_mgr);
+    avg_partition_count_num = update_num /(int) PARTITION_NUMS;
+
 
     next_node_mappings = (struct replica_mappings *) malloc(sizeof(struct replica_mappings));
     memset(next_node_mappings, 0, sizeof(struct replica_mappings));
@@ -676,17 +678,20 @@ void workloada_server()
     struct timespec start_through, end_through;
     long long int total_set_through_time=0;
     clock_gettime(CLOCK_MONOTONIC, &start_through);
-    // int repeat=0;
-    // while (repeat<1000)
-    // {
+#ifdef PERF_TEST
+    int repeat=0;
+    while (repeat<1000)
+    {
+#endif
         for(i=0;i < update_num ;i++)
         {
             bool is_async;
             dhmp_send_request_handler(NULL, set_msgs_group[i], &is_async, 0, 0);
         }
-    //     repeat++;
-    // }
-
+#ifdef PERF_TEST
+        repeat++;
+    }
+#endif
     clock_gettime(CLOCK_MONOTONIC, &end_through);
     total_set_through_time = ((((end_through.tv_sec * 1000000000) + end_through.tv_nsec) - ((start_through.tv_sec * 1000000000) + start_through.tv_nsec)));
     //ERROR_LOG("[set] count[%d] through_out time is [%lld] us", update_num, total_set_through_time /1000);

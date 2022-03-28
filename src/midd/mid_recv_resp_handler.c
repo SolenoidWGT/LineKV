@@ -45,6 +45,9 @@ int avg_partition_count_num=0;
 int partition_set_count[PARTITION_MAX_NUMS];
 bool partition_count_set_done_flag[PARTITION_MAX_NUMS]; 
 
+// 延迟计数
+int partition_0_count_num = 0;
+
 struct list_head partition_local_send_list[PARTITION_MAX_NUMS];   
 struct list_head main_thread_send_list[PARTITION_MAX_NUMS];
 uint64_t partition_work_nums[PARTITION_MAX_NUMS];
@@ -875,8 +878,6 @@ int init_mulit_server_work_thread()
 	cpu_set_t cpuset;
 	memset(&(mica_work_context_mgr[0]), 0, sizeof(struct mica_work_context));
 	memset(&(mica_work_context_mgr[1]), 0, sizeof(struct mica_work_context));
-
-	avg_partition_count_num = update_num /(int) PARTITION_NUMS;
 	memset(partition_count_set_done_flag, 0, sizeof(bool) * PARTITION_MAX_NUMS);
 
 	for (i=0; i<PARTITION_NUMS; i++)
@@ -1153,8 +1154,9 @@ dhmp_mica_main_replica_set_request_handler(struct dhmp_transport* rdma_trans, st
 	DEFINE_STACK_TIMER();
 	// MICA_TIME_COUNTER_INIT();
 	struct timespec start_g, end_g;
-	// clock_gettime(CLOCK_MONOTONIC, &start_g);	
-
+#ifdef MAIN_LOG_DEBUG_LATENCE
+	clock_gettime(CLOCK_MONOTONIC, &start_g);	
+#endif
 	struct post_datagram *resp, *peer_req_datagram;
 	struct dhmp_mica_set_request  * req_info;
 	struct dhmp_mica_set_response * set_result;
@@ -1239,14 +1241,6 @@ dhmp_mica_main_replica_set_request_handler(struct dhmp_transport* rdma_trans, st
 		set_result->is_success = false;
 		Assert(false);
 	}
-	// clock_gettime(CLOCK_MONOTONIC, &end_g);	
-
-#ifdef MAIN_LOG_DEBUG_LATENCE
-	if (set_counts >=100)
-		total_set_latency_time += ((((end_g.tv_sec * 1000000000) + end_g.tv_nsec) - ((start_g.tv_sec * 1000000000) + start_g.tv_nsec)));
-	if (server_instance->server_id == 0 && set_counts>200)
-		ERROR_LOG("[] count[%d] avg time is [%lld]us", set_counts, total_set_latency_time / (US_BASE*(set_counts-100)));
-#endif
 
 	// 副本节点先向 主节点 发送回复，节约一次 RTT 的时间
 	// 主节点向客户端发送回复
@@ -1306,12 +1300,23 @@ dhmp_mica_main_replica_set_request_handler(struct dhmp_transport* rdma_trans, st
 		// 	MICA_TIME_COUNTER_CAL("[None]->[makeup_update_request]");
 		partition_set_count[req_info->partition_id]++;
 
-		if (is_all_set_all_get && 
-			partition_set_count[req_info->partition_id] == avg_partition_count_num)
+		if (partition_set_count[req_info->partition_id] == avg_partition_count_num)
 		{
 			partition_count_set_done_flag[req_info->partition_id] = true;
 		}
 	}
+
+#ifdef MAIN_LOG_DEBUG_LATENCE
+	if (server_instance->server_id == 0  &&
+		req_info->partition_id == 0)
+	{
+		clock_gettime(CLOCK_MONOTONIC, &end_g);
+		partition_0_count_num++;
+		total_set_latency_time += ((((end_g.tv_sec * 1000000000) + end_g.tv_nsec) - ((start_g.tv_sec * 1000000000) + start_g.tv_nsec)));
+		if (partition_0_count_num == avg_partition_count_num)
+			ERROR_LOG("[%d] set count avg time is [%lld]us", partition_0_count_num, total_set_latency_time / (US_BASE*(partition_0_count_num)));
+	}
+#endif
 
 	// INFO_LOG("key_hash is %lx, len is %lu, addr is %p ", req_info->key_hash, req_info->key_length, key_addr);
 	return req_info->partition_id;
@@ -1604,7 +1609,7 @@ void dhmp_send_request_handler(struct dhmp_transport* rdma_trans,
 					if (done_flag)
 						break;
 				}
-
+#ifndef PERF_TEST
 				clock_gettime(CLOCK_MONOTONIC, &end_through); 
 				total_through_time = ((((end_through.tv_sec * 1000000000) + end_through.tv_nsec) - ((start_through.tv_sec * 1000000000) + start_through.tv_nsec)));
 				ERROR_LOG("set op count [%d], total op count [%d] total time is [%d] us", op_counts, __access_num, total_through_time / 1000);
@@ -1616,6 +1621,7 @@ void dhmp_send_request_handler(struct dhmp_transport* rdma_trans,
 					total_ops_num+=partition_set_count[i];
 				}
 				ERROR_LOG("Local total_ops_num is [%d], read_count is [%d]", total_ops_num,total_ops_num-update_num );
+#endif
 			}
 #endif
 

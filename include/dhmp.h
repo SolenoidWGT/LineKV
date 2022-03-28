@@ -494,7 +494,7 @@ struct dhmp_mica_get_p2p_MR_info_RQ
 #define MAIN_LOG_DEBUG_THROUGHOUT 
 // #define START_COUNT 1000
 // #define END_COUNT 4000
-#define THROUGH_TEST
+
 void dhmp_send_request_handler(struct dhmp_transport* rdma_trans,
 									struct dhmp_msg* msg, 
 									bool * is_async,
@@ -504,4 +504,9 @@ void dhmp_send_request_handler(struct dhmp_transport* rdma_trans,
 void distribute_partition_resp(int partition_id, struct dhmp_transport* rdma_trans, struct dhmp_msg* msg,  __time_t time_start1, __syscall_slong_t time_start2);
 extern struct dhmp_msg** get_msgs_group;
 pid_t gettid();
+
+// #define THROUGH_TEST
+// #define PERF_TEST
+#define MAIN_LOG_DEBUG_LATENCE
+
 #endif
