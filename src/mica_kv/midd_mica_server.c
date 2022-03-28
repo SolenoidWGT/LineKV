@@ -27,7 +27,6 @@ void* (*replica_node_nic_thread_ptr) (void* );
 void test_set(struct test_kv * kvs);
 
 struct dhmp_msg* all_access_set_group;
-static size_t SERVER_ID= (size_t)-1;
 
 int *partition_req_count_array;
 
@@ -697,7 +696,7 @@ void workloada_server()
     //ERROR_LOG("[set] count[%d] through_out time is [%lld] us", update_num, total_set_through_time /1000);
 
     // 等待测试结束
-    sleep(10);
+    sleep(2);
 }
 
 // 测试所有节点中的数据必须一致

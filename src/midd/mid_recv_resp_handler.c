@@ -48,6 +48,8 @@ bool partition_count_set_done_flag[PARTITION_MAX_NUMS];
 // 延迟计数
 int partition_0_count_num = 0;
 
+size_t SERVER_ID= (size_t)-1;
+
 struct list_head partition_local_send_list[PARTITION_MAX_NUMS];   
 struct list_head main_thread_send_list[PARTITION_MAX_NUMS];
 uint64_t partition_work_nums[PARTITION_MAX_NUMS];
@@ -883,7 +885,10 @@ int init_mulit_server_work_thread()
 	for (i=0; i<PARTITION_NUMS; i++)
 	{
 		CPU_ZERO(&cpuset);
-		CPU_SET(i, &cpuset);
+		if (SERVER_ID < 4)
+			CPU_SET(i, &cpuset);
+		else
+			CPU_SET(i+20, &cpuset);
 		thread_init_data *data = (thread_init_data *) malloc(sizeof(thread_init_data));
 		data->partition_id = i;
 		data->thread_type = (enum dhmp_msg_type) DHMP_MICA_SEND_INFO_REQUEST;
@@ -1307,15 +1312,27 @@ dhmp_mica_main_replica_set_request_handler(struct dhmp_transport* rdma_trans, st
 	}
 
 #ifdef MAIN_LOG_DEBUG_LATENCE
-	if (server_instance->server_id == 0  &&
-		req_info->partition_id == 0)
-	{
-		clock_gettime(CLOCK_MONOTONIC, &end_g);
-		partition_0_count_num++;
-		total_set_latency_time += ((((end_g.tv_sec * 1000000000) + end_g.tv_nsec) - ((start_g.tv_sec * 1000000000) + start_g.tv_nsec)));
-		if (partition_0_count_num == avg_partition_count_num)
-			ERROR_LOG("[%d] set count avg time is [%lld]us", partition_0_count_num, total_set_latency_time / (US_BASE*(partition_0_count_num)));
-	}
+		if (server_instance->server_id == 0  &&
+			req_info->partition_id == 0)
+		{
+			if (partition_0_count_num==0)
+				partition_0_count_num++;
+			else
+			{
+				long long int latency;
+				clock_gettime(CLOCK_MONOTONIC, &end_g);
+				latency= ((((end_g.tv_sec * 1000000000) + end_g.tv_nsec) - ((start_g.tv_sec * 1000000000) + start_g.tv_nsec)));
+				fprintf(stderr, "%ld ", latency/1000);
+				total_set_latency_time += latency;
+				partition_0_count_num++;
+				if (partition_0_count_num == avg_partition_count_num)
+				{
+					// sleep(1);
+					//ERROR_LOG("\n");
+					//ERROR_LOG("[%d] set count avg time is [%lld]us", partition_0_count_num, total_set_latency_time / (US_BASE*(partition_0_count_num)));
+				}
+			}
+		}
 #endif
 
 	// INFO_LOG("key_hash is %lx, len is %lu, addr is %p ", req_info->key_hash, req_info->key_length, key_addr);
