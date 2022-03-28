@@ -505,8 +505,8 @@ void distribute_partition_resp(int partition_id, struct dhmp_transport* rdma_tra
 extern struct dhmp_msg** get_msgs_group;
 pid_t gettid();
 
-// #define THROUGH_TEST
+#define THROUGH_TEST
 // #define PERF_TEST
-#define MAIN_LOG_DEBUG_LATENCE
+// #define MAIN_LOG_DEBUG_LATENCE
 
 #endif

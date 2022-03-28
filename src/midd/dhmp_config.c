@@ -12,7 +12,7 @@
 #include "dhmp_log.h"
 #include "dhmp_hash.h"
 #include "dhmp_config.h"
-
+#include "midd_mica_benchmark.h"
 /*these strings in config xml*/
 #define DHMP_DHMP_CONFIG_STR "dhmp_config"
 #define DHMP_CLIENT_STR "client"
@@ -184,7 +184,8 @@ void dhmp_set_curnode_id ( struct dhmp_config* config_ptr, bool is_ubuntu)
 
 	if (is_ubuntu)
 	{
-		config_ptr->curnet_id = 3;
+		config_ptr->curnet_id = SERVER_ID;
+		Assert(SERVER_ID == 3 || SERVER_ID == 6);
 		return;
 	}
 

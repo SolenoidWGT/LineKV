@@ -696,7 +696,7 @@ void workloada_server()
     //ERROR_LOG("[set] count[%d] through_out time is [%lld] us", update_num, total_set_through_time /1000);
 
     // 等待测试结束
-    sleep(2);
+    sleep(5);
 }
 
 // 测试所有节点中的数据必须一致

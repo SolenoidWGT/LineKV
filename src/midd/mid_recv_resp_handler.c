@@ -347,7 +347,7 @@ dhmp_mica_get_request_handler(struct post_datagram *req)
 	if (IS_REPLICA(server_instance->server_type))
 		Assert(replica_is_ready == true);
 	
-	partition_set_count[req_info->partition_id]++;
+	// partition_set_count[req_info->partition_id]++;
 
 	// 在调用 get 之前还不能确定需要返回的报文长度的大小
 	// 但是处于简单和避免两次RPC交互，我们默认value的长度为1k
@@ -836,33 +836,33 @@ main_node_broadcast_matedata(struct dhmp_mica_set_request  * req_info,
     }
 
 	//MICA_TIME_COUNTER_INIT();
-	//clock_gettime(CLOCK_MONOTONIC, &start_l);
+	clock_gettime(CLOCK_MONOTONIC, &start_l);
 	while(mirror_node_mapping[partition_id].in_used_flag == 1);
-	// {
-	// 	clock_gettime(CLOCK_MONOTONIC, &end_l);			    	
-	// 	long long mica_total_time_ns = (((end_l.tv_sec * 1000000000) + end_l.tv_nsec) - ((start_l.tv_sec * 1000000000) + start_l.tv_nsec)); 
-	// 	if (mica_total_time_ns / MS_BASE > 500)	
-	// 	{													
-	// 		ERROR_LOG("tag : [%d], set_count [%d] TIMEOUT! count_num is [%d],  retry!", req_info->tag, set_counts, req_info->count_num);
-	// 		exit(-1);
-	// 	}
-	// }
+	{
+		clock_gettime(CLOCK_MONOTONIC, &end_l);			    	
+		long long mica_total_time_ns = (((end_l.tv_sec * 1000000000) + end_l.tv_nsec) - ((start_l.tv_sec * 1000000000) + start_l.tv_nsec)); 
+		if (mica_total_time_ns / MS_BASE > 500)	
+		{													
+			ERROR_LOG("tag : [%d], set_count [%d] TIMEOUT! count_num is [%d],  retry!", req_info->tag, set_counts, req_info->count_num);
+			exit(-1);
+		}
+	}
 	//INFO_LOG("[broadcast]->[for:req_callback_ptr]->[mirror]----use time [%d], tag[%d], partition[%d]", time1, req_info->tag, partition_id);
 	// if (partition_id==0)
 	// 	MICA_TIME_COUNTER_CAL("while mirror");
 
 	//MICA_TIME_COUNTER_INIT();
-	//clock_gettime(CLOCK_MONOTONIC, &start_l);
+	clock_gettime(CLOCK_MONOTONIC, &start_l);
 	while(req_info->count_num != 0);
-	// {
-	// 	clock_gettime(CLOCK_MONOTONIC, &end_l);			    	
-	// 	long long mica_total_time_ns = (((end_l.tv_sec * 1000000000) + end_l.tv_nsec) - ((start_l.tv_sec * 1000000000) + start_l.tv_nsec)); 
-	// 	if (mica_total_time_ns / MS_BASE > 500)	
-	// 	{													
-	// 		ERROR_LOG("tag : [%d], set_count [%d] TIMEOUT! count_num is [%d],  retry!", req_info->tag, set_counts, req_info->count_num);
-	// 		exit(-1);
-	// 	}
-	// }
+	{
+		clock_gettime(CLOCK_MONOTONIC, &end_l);			    	
+		long long mica_total_time_ns = (((end_l.tv_sec * 1000000000) + end_l.tv_nsec) - ((start_l.tv_sec * 1000000000) + start_l.tv_nsec)); 
+		if (mica_total_time_ns / MS_BASE > 500)	
+		{													
+			ERROR_LOG("tag : [%d], set_count [%d] TIMEOUT! count_num is [%d],  retry!", req_info->tag, set_counts, req_info->count_num);
+			exit(-1);
+		}
+	}
 	// if (partition_id==0)
 	// 	MICA_TIME_COUNTER_CAL("while replica");
 
@@ -1261,8 +1261,7 @@ dhmp_mica_main_replica_set_request_handler(struct dhmp_transport* rdma_trans, st
 
 		resp_msg_ptr = make_basic_msg(&resp_msg, resp);
 		dhmp_post_send(rdma_trans, resp_msg_ptr, req_info->partition_id);
-		free(resp);
-		INFO_LOG("[dhmp_post_sendr]->[upstream]----tag[%d], partition[%d]", req_info->tag, req_info->partition_id );
+		// INFO_LOG("[dhmp_post_sendr]->[upstream]----tag[%d], partition[%d]", req_info->tag, req_info->partition_id );
 
 		if (!IS_HEAD(server_instance->server_type) &&
 			!IS_MIRROR(server_instance->server_type))
@@ -1368,11 +1367,9 @@ dhmp_mica_mirror_set_request_handler(struct dhmp_transport* rdma_trans, uint32_t
 	resp_msg_ptr = make_basic_msg(&resp_msg, resp);
 	dhmp_post_send(rdma_trans, resp_msg_ptr, (size_t)partition_id);
 
-	// memmove(local_test_buff, local_test_buff, 65536);
+	memmove(local_test_buff, local_test_buff, 65536);
 
-	free(resp);
-
-	//free(resp);
+	// free(resp);
 	// ERROR_LOG("[dhmp_mica_mirror_set_request_handler] [%d] is ok", partition_id);
 	return (size_t)partition_id;
 }
