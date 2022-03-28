@@ -468,11 +468,20 @@ void workloada_server()
     struct timespec start_through, end_through;
     long long int total_set_through_time=0;
     clock_gettime(CLOCK_MONOTONIC, &start_through);
-	for(i=0;i < update_num ;i++)
-	{
-        bool is_async;
-        dhmp_send_request_handler(NULL, set_msgs_group[i], &is_async);
-	}
+#ifdef PERF_TEST
+    int j = 0;
+    while (j <1000)
+    {
+#endif
+        for(i=0;i < update_num ;i++)
+        {
+            bool is_async;
+            dhmp_send_request_handler(NULL, set_msgs_group[i], &is_async);
+        }
+#ifdef PERF_TEST
+        j++;
+    }
+#endif
     clock_gettime(CLOCK_MONOTONIC, &end_through);
     total_set_through_time = ((((end_through.tv_sec * 1000000000) + end_through.tv_nsec) - ((start_through.tv_sec * 1000000000) + start_through.tv_nsec)));
     ERROR_LOG("[set] count[%d] through_out time is [%lld] us", update_num, total_set_through_time /1000);

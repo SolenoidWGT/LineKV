@@ -706,7 +706,8 @@ void distribute_partition_resp(int partition_id, struct dhmp_transport* rdma_tra
 		// 如果去掉速度限制，则链表空指针的断言会失败，应该还是有线程间同步bug
 		for (;;)
 		{
-			if (partition_work_nums[partition_id] <= 50 ) // || retry_count >= 500
+			//if (partition_work_nums[partition_id] <= 50 ) // || retry_count >= 500
+			if (partition_work_nums[partition_id] <= 50 || retry_count >= 500)
 				break;
 			else
 				retry_count++;
@@ -759,6 +760,7 @@ void* mica_work_thread(void *data)
 	while (true)
 	{
 		//memory_barrier();
+		// if (partition_work_nums[partition_id] >=50 || retry_count>=1000)
 		if (partition_work_nums[partition_id] >=0 || retry_count>=1000)
 		{
 			retry_count=0;
@@ -853,7 +855,7 @@ dhmp_mica_set_request_handler(struct dhmp_transport* rdma_trans, struct post_dat
 	memset(resp, 0, DATAGRAM_ALL_LEN(resp_len));
 	set_result = (struct dhmp_mica_set_response *) DATA_ADDR(resp, 0);
 
-	INFO_LOG("Get set tag[%ld]", req_info->tag);
+	// INFO_LOG("Get set tag[%ld]", req_info->tag);
 
 	// 注意！，此处不需要调用 warpper 函数
 	// 因为传递过来的 value 地址已经添加好头部和尾部了，长度也已经加上了头部和尾部的长度。
@@ -937,6 +939,8 @@ dhmp_mica_set_request_handler(struct dhmp_transport* rdma_trans, struct post_dat
 		req_msg.msg_type = DHMP_MICA_SEND_INFO_REQUEST;
 		req_msg.data_size = sizeof(struct post_datagram) + sizeof(struct dhmp_mica_set_request)\
 							+ req_info->key_length + req_info->value_length;
+		// req_msg.data_size = req->info_length;
+		// req_msg.data_size = DATAGRAM_ALL_LEN(req->info_length);
 		req_msg.data= req;
 
 		// make_basic_msg(&req_msg, req, DHMP_MICA_SEND_INFO_REQUEST);
@@ -1100,6 +1104,7 @@ void dhmp_send_request_handler(struct dhmp_transport* rdma_trans,
 					if (done_flag)
 						break;
 				}
+#ifndef PERF_TEST
 				clock_gettime(CLOCK_MONOTONIC, &end_through); 
 				total_through_time = ((((end_through.tv_sec * 1000000000) + end_through.tv_nsec) - ((start_through.tv_sec * 1000000000) + start_through.tv_nsec)));
 				ERROR_LOG("set op count [%d], total op count [%d] total time is [%d] us", op_counts, __access_num, total_through_time / 1000);
@@ -1111,6 +1116,7 @@ void dhmp_send_request_handler(struct dhmp_transport* rdma_trans,
 					total_ops_num+=partition_set_count[i];
 				}
 				ERROR_LOG("Local total_ops_num is [%d], read_count is [%d]", total_ops_num,total_ops_num-update_num );
+#endif
 			}
 #endif
 

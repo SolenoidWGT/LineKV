@@ -477,4 +477,5 @@ void dhmp_send_request_handler(struct dhmp_transport* rdma_trans,
 #define THROUGH_TEST
 
 extern struct dhmp_msg** get_msgs_group;
+#define PERF_TEST
 #endif
