@@ -41,6 +41,8 @@ int avg_partition_count_num=0;
 int partition_set_count[PARTITION_MAX_NUMS];
 bool partition_count_set_done_flag[PARTITION_MAX_NUMS]; 
 
+// 延迟计数
+int partition_0_count_num = 0;
 struct list_head partition_local_send_list[PARTITION_MAX_NUMS];   
 struct list_head main_thread_send_list[PARTITION_MAX_NUMS];
 uint64_t partition_work_nums[PARTITION_MAX_NUMS];
@@ -592,8 +594,6 @@ int init_mulit_server_work_thread()
 	cpu_set_t cpuset;
 	memset(&(mica_work_context_mgr[0]), 0, sizeof(struct mica_work_context));
 	memset(&(mica_work_context_mgr[1]), 0, sizeof(struct mica_work_context));
-
-	avg_partition_count_num = update_num /(int) PARTITION_NUMS;
 	memset(partition_count_set_done_flag, 0, sizeof(bool) * PARTITION_MAX_NUMS);
 
 	for (i=0; i<PARTITION_NUMS; i++)
@@ -824,7 +824,6 @@ void
 dhmp_mica_set_request_handler(struct dhmp_transport* rdma_trans, struct post_datagram *req, int partition_id)
 {
 	struct timespec start_g, end_g;
-	//clock_gettime(CLOCK_MONOTONIC, &start_g);	
 	struct post_datagram *resp;
 	struct dhmp_mica_set_request  * req_info;
 	struct dhmp_mica_set_response * set_result;
@@ -850,6 +849,11 @@ dhmp_mica_set_request_handler(struct dhmp_transport* rdma_trans, struct post_dat
 
 	if (IS_MAIN(server_instance->server_type) || req_info->onePC)
 		value_addr = (void*)key_addr + req_info->key_length;
+
+#ifdef MAIN_LOG_DEBUG_LATENCE
+	if (req_info->partition_id == 0)
+		clock_gettime(CLOCK_MONOTONIC, &start_g);	
+#endif
 
 	resp = (struct post_datagram *) malloc(DATAGRAM_ALL_LEN(resp_len));
 	memset(resp, 0, DATAGRAM_ALL_LEN(resp_len));
@@ -970,23 +974,46 @@ dhmp_mica_set_request_handler(struct dhmp_transport* rdma_trans, struct post_dat
 		// make_basic_msg(&req_msg, req, DHMP_MICA_SEND_INFO_REQUEST);
 		req_msg.data_size = DATAGRAM_ALL_LEN(resp->info_length);
 
-		for (nid=MIRROR_NODE_ID ; nid< server_instance->config.nets_cnt; nid++)
-			dhmp_post_send(find_connect_server_by_nodeID(nid), &req_msg, req_info->partition_id);
-
+#ifdef DHMP_POST_SEND_LATENCE
+		if (req_info->partition_id == 0)
+			clock_gettime(CLOCK_MONOTONIC, &start_g);	
+#endif
+		// for (nid=MIRROR_NODE_ID ; nid< server_instance->config.nets_cnt; nid++)
+		// 	dhmp_post_send(find_connect_server_by_nodeID(nid), &req_msg, req_info->partition_id);
+#ifdef DHMP_POST_SEND_LATENCE
+		if (server_instance->server_id == 0  &&
+			req_info->partition_id == 0)
+		{
+			clock_gettime(CLOCK_MONOTONIC, &end_g);
+			partition_0_count_num++;
+			total_set_latency_time += ((((end_g.tv_sec * 1000000000) + end_g.tv_nsec) - ((start_g.tv_sec * 1000000000) + start_g.tv_nsec)));
+			if (partition_0_count_num == avg_partition_count_num)
+				ERROR_LOG("[%d] dhmp_post_send count avg time is [%lld] ns", partition_0_count_num, total_set_latency_time / (partition_0_count_num));
+		}
+#endif
 		// INFO_LOG("Main node send twoPC tag[%ld]", req_info->tag);
 
 		//MICA_TIME_COUNTER_INIT();
-		while(req->reuse_done_count != 0 );
+		// 优化，等下次合并传输
+		// while(req->reuse_done_count != 0 );
 			//MICA_TIME_LIMITED(req_info->tag, TIMEOUT_LIMIT_MS);
 
 		// INFO_LOG("Main node recv all 2PC, tag [%d]", req_info->tag);
 
 		partition_set_count[req_info->partition_id]++;
-		if (is_all_set_all_get && 
-			partition_set_count[req_info->partition_id] == avg_partition_count_num)
-		{
+		if (partition_set_count[req_info->partition_id] == avg_partition_count_num)
 			partition_count_set_done_flag[req_info->partition_id] = true;
+#ifdef MAIN_LOG_DEBUG_LATENCE
+		if (server_instance->server_id == 0  &&
+			req_info->partition_id == 0)
+		{
+			clock_gettime(CLOCK_MONOTONIC, &end_g);
+			partition_0_count_num++;
+			total_set_latency_time += ((((end_g.tv_sec * 1000000000) + end_g.tv_nsec) - ((start_g.tv_sec * 1000000000) + start_g.tv_nsec)));
+			if (partition_0_count_num == avg_partition_count_num)
+				ERROR_LOG("[%d] set count avg time is [%lld]us", partition_0_count_num, total_set_latency_time / (US_BASE*(partition_0_count_num)));
 		}
+#endif
 	}
 }
 

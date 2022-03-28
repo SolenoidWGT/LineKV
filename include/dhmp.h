@@ -474,8 +474,14 @@ void dhmp_send_request_handler(struct dhmp_transport* rdma_trans,
 									struct dhmp_msg* msg, 
 									bool * is_async);
 
-#define THROUGH_TEST
 
 extern struct dhmp_msg** get_msgs_group;
-#define PERF_TEST
+// #define PERF_TEST
+// #define THROUGH_TEST
+#define MAIN_LOG_DEBUG_LATENCE
+// #define DHMP_POST_SEND_LATENCE
+
+
+
+
 #endif

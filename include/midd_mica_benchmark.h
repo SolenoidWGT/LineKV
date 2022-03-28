@@ -24,6 +24,7 @@ extern int op_gaps[4];
 extern int little_idx;
 extern int end_round;
 extern bool is_all_set_all_get;
+extern int avg_partition_count_num;
 
 void pick_zipfian(int max_num);
 void pick_uniform(int max_num);

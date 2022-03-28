@@ -181,7 +181,7 @@ int main(int argc,char *argv[])
    
     // 初始化 rdma 连接
     server_instance = dhmp_server_init(SERVER_ID);
-int available_r_node_num;
+    int available_r_node_num;
     if (main_node_is_readable)
         available_r_node_num = server_instance->config.nets_cnt;
     else
@@ -250,9 +250,10 @@ int available_r_node_num;
             little_idx = 0;
             end_round = 1;
             left_op_nums = update_num - (op_gaps[0] * __read_num_per_node); // 要保留无法整除的部分
-            final_get_num = op_gaps[0] * __read_num_per_node;
+            final_get_num = available_r_node_num * (__read_num_per_node - left_op_nums);
             get_is_more = false;
-            ERROR_LOG("FINALLY: update_num[%d], __read_num_per_node[%d], left_op_nums:[%d],  final_get_num:[%d], get_is_more[%d]",update_num, __read_num_per_node, left_op_nums, final_get_num ,get_is_more);
+            ERROR_LOG("FINALLY: update_num[%d], __read_num_per_node[%d], left_op_nums:[%d],  final_get_num:[%d], get_is_more[%d], op_gaps[0][%d]",\
+                            update_num, __read_num_per_node, left_op_nums, final_get_num ,get_is_more, op_gaps[0] );
         }
 
         // 更新最终的读数量
@@ -284,6 +285,8 @@ int available_r_node_num;
     Assert(server_instance);
     Assert(client_mgr);
     Assert(!IS_REPLICA(server_instance->server_type));
+    // Assert(update_num % PARTITION_NUMS == 0);
+    avg_partition_count_num = update_num /(int) PARTITION_NUMS;
 
     next_node_mappings = (struct replica_mappings *) malloc(sizeof(struct replica_mappings));
     memset(next_node_mappings, 0, sizeof(struct replica_mappings));
@@ -484,7 +487,7 @@ void workloada_server()
 #endif
     clock_gettime(CLOCK_MONOTONIC, &end_through);
     total_set_through_time = ((((end_through.tv_sec * 1000000000) + end_through.tv_nsec) - ((start_through.tv_sec * 1000000000) + start_through.tv_nsec)));
-    ERROR_LOG("[set] count[%d] through_out time is [%lld] us", update_num, total_set_through_time /1000);
+    ERROR_LOG("send out all tasks");
 
     sleep(10);
 }
