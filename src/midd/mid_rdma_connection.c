@@ -10,6 +10,7 @@
 #include "dhmp_server.h"
 #include "dhmp_log.h"
 #include "dhmp_client.h"
+#include "midd_mica_benchmark.h"
 static int cq_thread_cpu_idx=0;
 void dhmp_event_channel_handler(int fd, void* data);
 int dhmp_transport_listen(struct dhmp_transport* rdma_trans, int listen_port)
@@ -227,7 +228,10 @@ struct dhmp_cq* dhmp_cq_get(struct dhmp_device* device, struct dhmp_context* ctx
 	// }
 	cpu_set_t cpuset;
 	CPU_ZERO(&cpuset);
-	CPU_SET(PARTITION_NUMS+cq_thread_cpu_idx, &cpuset);
+	if (SERVER_ID < 4)
+		CPU_SET(PARTITION_NUMS+cq_thread_cpu_idx, &cpuset);
+	else
+		CPU_SET(PARTITION_NUMS+cq_thread_cpu_idx+20, &cpuset);
 	ctx->stop_flag[i] = false;
 	dcq->stop_flag_ptr = &ctx->stop_flag[i];
 	retval=pthread_create(&ctx->busy_wait_cq_thread[i], NULL, busy_wait_cq_handler, (void*)dcq);

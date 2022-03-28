@@ -27,7 +27,6 @@ void* (*replica_node_nic_thread_ptr) (void* );
 void test_set(struct test_kv * kvs);
 
 struct dhmp_msg* all_access_set_group;
-static size_t SERVER_ID= (size_t)-1;
 bool is_single_thread;
 int test_size;
 
@@ -487,8 +486,10 @@ void workloada_server()
 #endif
     clock_gettime(CLOCK_MONOTONIC, &end_through);
     total_set_through_time = ((((end_through.tv_sec * 1000000000) + end_through.tv_nsec) - ((start_through.tv_sec * 1000000000) + start_through.tv_nsec)));
-    ERROR_LOG("send out all tasks");
 
+#ifndef MAIN_LOG_DEBUG_LATENCE
+    ERROR_LOG("send out all tasks");
+#endif
     sleep(10);
 }
 

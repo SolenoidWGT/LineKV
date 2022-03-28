@@ -47,6 +47,8 @@ struct list_head partition_local_send_list[PARTITION_MAX_NUMS];
 struct list_head main_thread_send_list[PARTITION_MAX_NUMS];
 uint64_t partition_work_nums[PARTITION_MAX_NUMS];
 
+size_t SERVER_ID= (size_t)-1;
+
 // 由于 send 操作可能会被阻塞住，所以必须将 recv 操作让另一个线程处理，否则会出现死锁。
 // 我们对每一个 partition 启动两个线程
 void* mica_work_thread(void *data);
@@ -599,7 +601,10 @@ int init_mulit_server_work_thread()
 	for (i=0; i<PARTITION_NUMS; i++)
 	{
 		CPU_ZERO(&cpuset);
-		CPU_SET(i, &cpuset);
+		if (SERVER_ID < 4)
+			CPU_SET(i, &cpuset);
+		else
+			CPU_SET(i+20, &cpuset);
 		thread_init_data *data = (thread_init_data *) malloc(sizeof(thread_init_data));
 		data->partition_id = i;
 		data->thread_type = (enum dhmp_msg_type) DHMP_MICA_SEND_INFO_REQUEST;
@@ -1007,11 +1012,23 @@ dhmp_mica_set_request_handler(struct dhmp_transport* rdma_trans, struct post_dat
 		if (server_instance->server_id == 0  &&
 			req_info->partition_id == 0)
 		{
-			clock_gettime(CLOCK_MONOTONIC, &end_g);
-			partition_0_count_num++;
-			total_set_latency_time += ((((end_g.tv_sec * 1000000000) + end_g.tv_nsec) - ((start_g.tv_sec * 1000000000) + start_g.tv_nsec)));
-			if (partition_0_count_num == avg_partition_count_num)
-				ERROR_LOG("[%d] set count avg time is [%lld]us", partition_0_count_num, total_set_latency_time / (US_BASE*(partition_0_count_num)));
+			if (partition_0_count_num==0)
+				partition_0_count_num++;
+			else
+			{
+				long long int latency;
+				clock_gettime(CLOCK_MONOTONIC, &end_g);
+				latency= ((((end_g.tv_sec * 1000000000) + end_g.tv_nsec) - ((start_g.tv_sec * 1000000000) + start_g.tv_nsec)));
+				fprintf(stderr, "%ld ", latency/1000);
+				total_set_latency_time += latency;
+				partition_0_count_num++;
+				if (partition_0_count_num == avg_partition_count_num)
+				{
+					// sleep(1);
+					//ERROR_LOG("\n");
+					//ERROR_LOG("[%d] set count avg time is [%lld]us", partition_0_count_num, total_set_latency_time / (US_BASE*(partition_0_count_num)));
+				}
+			}
 		}
 #endif
 	}

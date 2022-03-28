@@ -23,7 +23,7 @@
 #include "dhmp_server.h"
 MEHCACHED_BEGIN
 
-
+#define NDEBUG
 struct mehcached_table table_o;
 struct mehcached_table main_node_log_table_o;
 
