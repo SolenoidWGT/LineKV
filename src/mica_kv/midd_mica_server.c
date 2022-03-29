@@ -227,7 +227,7 @@ int main(int argc,char *argv[])
                     if (little_idx==-1)
                         little_idx=round;  
                 }
-                ERROR_LOG("count:[%d], op_gaps:[%d], divisible_get_nums[%d], __read_num_per_node[%d]\n", round, op_gaps[round], divisible_get_nums[round], __read_num_per_node);
+                ERROR_LOG("count:[%d], op_gaps:[%d], divisible_get_nums[%d], __read_num_per_node[%d]", round, op_gaps[round], divisible_get_nums[round], __read_num_per_node);
                 round++;
                 end_round = round;
             }
@@ -237,7 +237,8 @@ int main(int argc,char *argv[])
                     final_get_num += divisible_get_nums[i];
 
             get_is_more = true;
-            ERROR_LOG("FINALLY: update_num[%d], final_get_num:[%d], little_idx[%d], get_is_more[%d]\n",update_num, final_get_num,little_idx, get_is_more);
+            ERROR_LOG("FINALLY: update_num[%d], final_get_num:[%d], little_idx[%d], get_is_more[%d]",update_num, final_get_num,little_idx, get_is_more);
+            ERROR_LOG("FINALLY: update_num[%d], __read_num_per_node[%d],  final_get_num:[%d], get_is_more[%d], op_gaps:[%d]",update_num, __read_num_per_node, final_get_num ,get_is_more, op_gaps[0]);
         }
         // 写比读多
         else
@@ -248,9 +249,10 @@ int main(int argc,char *argv[])
             little_idx = 0;
             end_round = 1;
             left_op_nums = update_num - (op_gaps[0] * __read_num_per_node); // 要保留无法整除的部分
-            final_get_num = op_gaps[0] * __read_num_per_node;
+            final_get_num =( __read_num_per_node-left_op_nums) * available_r_node_num;
             get_is_more = false;
-            ERROR_LOG("FINALLY: update_num[%d], __read_num_per_node[%d], left_op_nums:[%d],  final_get_num:[%d], get_is_more[%d]",update_num, __read_num_per_node, left_op_nums, final_get_num ,get_is_more);
+            ERROR_LOG("FINALLY: update_num[%d], __read_num_per_node[%d], left_op_nums:[%d],  final_get_num:[%d], get_is_more[%d], op_gaps:[%d]",update_num, __read_num_per_node, left_op_nums, final_get_num ,get_is_more, op_gaps[0]);
+            Assert(little_idx != -1 && little_idx < end_round);
         }
 
         // 更新最终的读数量
@@ -278,13 +280,12 @@ int main(int argc,char *argv[])
     // op_gap;
     partition_req_count_array = (int*) malloc(sizeof(int) * PARTITION_NUMS);
     memset(partition_req_count_array, 0, sizeof(int) * PARTITION_NUMS);
-    generate_local_get_mgs();
 
     client_mgr = dhmp_client_init(INIT_DHMP_CLIENT_BUFF_SIZE, false);
     Assert(server_instance);
     Assert(client_mgr);
     avg_partition_count_num = update_num /(int) PARTITION_NUMS;
-
+    generate_local_get_mgs();
 
     next_node_mappings = (struct replica_mappings *) malloc(sizeof(struct replica_mappings));
     memset(next_node_mappings, 0, sizeof(struct replica_mappings));
@@ -372,16 +373,16 @@ int main(int argc,char *argv[])
 		}
 
         // 启动网卡线程
-        for (i=0; i<nic_thread_num; i++)
-        {
-            int64_t nic_id = (int64_t)i;
-            retval = pthread_create(&nic_thread[i], NULL, main_node_nic_thread, (void*)nic_id);
-            if(retval)
-            {
-                ERROR_LOG("pthread create error.");
-                return -1;
-            }
-        }
+        // for (i=0; i<nic_thread_num; i++)
+        // {
+        //     int64_t nic_id = (int64_t)i;
+        //     retval = pthread_create(&nic_thread[i], NULL, main_node_nic_thread, (void*)nic_id);
+        //     if(retval)
+        //     {
+        //         ERROR_LOG("pthread create error.");
+        //         return -1;
+        //     }
+        // }
 		INFO_LOG("---------------------------MAIN node init finished!------------------------------");
 
 #ifdef MAIN_NODE_TEST
@@ -412,7 +413,7 @@ int main(int argc,char *argv[])
         struct dhmp_transport *rdma_trans=NULL;
         int expected_connections;
         int active_connection = 0;
-        size_t up_node;
+        // size_t up_node;
     
         if (!IS_TAIL(server_instance->server_type))
         {
@@ -427,25 +428,25 @@ int main(int argc,char *argv[])
 
             // 启动网卡线程
             //pthread_create(&nic_thread, NULL, *replica_node_nic_thread_ptr, NULL);
-            for (i=0; i<nic_thread_num; i++)
-            {
-                int64_t nic_id = (int64_t)i;
-                retval = pthread_create(&nic_thread[i], NULL, main_node_nic_thread, (void*)nic_id);
-                if(retval)
-                {
-                    ERROR_LOG("pthread create error.");
-                    return -1;
-                }
-            }
+            // for (i=0; i<nic_thread_num; i++)
+            // {
+            //     int64_t nic_id = (int64_t)i;
+            //     retval = pthread_create(&nic_thread[i], NULL, main_node_nic_thread, (void*)nic_id);
+            //     if(retval)
+            //     {
+            //         ERROR_LOG("pthread create error.");
+            //         return -1;
+            //     }
+            // }
             MID_LOG("Node [%d] is started nicthread and get cliMR!", server_instance->server_id);
         }
 
-        if (server_instance->server_id == REPLICA_NODE_HEAD_ID)
-            up_node = 0;    // 链表中的头节点没用上游节点
-        else
-            up_node = server_instance->server_id-1;
+        // if (server_instance->server_id == REPLICA_NODE_HEAD_ID)
+        //     up_node = 0;    // 链表中的头节点没用上游节点
+        // else
+        //     up_node = server_instance->server_id-1;
 
-        Assert(up_node != (size_t)-1);
+        // Assert(up_node != (size_t)-1);
 
         if (server_instance->server_id == REPLICA_NODE_HEAD_ID)
             expected_connections = 1;  // 链表中的头节点只需要被动接受主节点的连接
@@ -628,13 +629,26 @@ void new_main_test_through()
 void generate_local_get_mgs()
 {
     // 生成本地读负载
-    int i, idx;
+    int i, idx, suiji;
     get_msgs_group = (struct dhmp_msg**) malloc( (size_t)(read_num+1 )* sizeof(void*));
     generate_test_data((size_t)0, (size_t)1, (size_t)__test_size , (size_t)TEST_KV_NUM);
     for (i=0; i<=(int)read_num;i++)
     {
-        idx = (int)rand_num[i % TEST_KV_NUM];
-        get_msgs_group[i] = pack_test_get_resq(&kvs_group[idx], idx, (size_t)__test_size + VALUE_HEADER_LEN + VALUE_TAIL_LEN);
+        // idx = (int)rand_num[i % TEST_KV_NUM];
+        srand((unsigned int)i);
+        suiji = rand()%(TEST_KV_NUM);
+        get_msgs_group[i] = pack_test_get_resq(&kvs_group[suiji], i, (size_t)__test_size + VALUE_HEADER_LEN + VALUE_TAIL_LEN);
+    }
+
+    // 随机打乱本地读负载
+    for (i=0; i<(int)read_num;i++)
+    {
+        struct dhmp_msg * tmp;
+        srand((unsigned int)i);
+        suiji = rand()%(read_num+1);
+        tmp = get_msgs_group[suiji];
+        get_msgs_group[suiji] = get_msgs_group[i];
+        get_msgs_group[i] = tmp;
     }
 }
 
@@ -675,7 +689,7 @@ void workloada_server()
     //exit(0);
 
     struct timespec start_through, end_through;
-    long long int total_set_through_time=0;
+    // long long int total_set_through_time=0;
     clock_gettime(CLOCK_MONOTONIC, &start_through);
 #ifdef PERF_TEST
     int repeat=0;
@@ -692,7 +706,7 @@ void workloada_server()
     }
 #endif
     clock_gettime(CLOCK_MONOTONIC, &end_through);
-    total_set_through_time = ((((end_through.tv_sec * 1000000000) + end_through.tv_nsec) - ((start_through.tv_sec * 1000000000) + start_through.tv_nsec)));
+    // total_set_through_time = ((((end_through.tv_sec * 1000000000) + end_through.tv_nsec) - ((start_through.tv_sec * 1000000000) + start_through.tv_nsec)));
     //ERROR_LOG("[set] count[%d] through_out time is [%lld] us", update_num, total_set_through_time /1000);
 
     // 等待测试结束

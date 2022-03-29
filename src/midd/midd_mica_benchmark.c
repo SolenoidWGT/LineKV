@@ -101,14 +101,12 @@ generate_test_data(size_t key_offset, size_t val_offset, size_t value_length, si
         // uint64_t key_hash = hash((const uint8_t *)&key, sizeof(key));
         // value_length = sizeof(value) > value_length ? sizeof(value) : value_length;
 
-
         kvs_group[i].true_key_length = sizeof(key);
         kvs_group[i].true_value_length = value_length;
         kvs_group[i].key = (uint8_t *)malloc(kvs_group[i].true_key_length);
         kvs_group[i].value = (uint8_t*) malloc(kvs_group[i].true_value_length);
         kvs_group[i].key_hash = hash(kvs_group[i].key, kvs_group[i].true_key_length );
 
- 
         // 注意我们 get 回来的数据需要  考虑到 header 和 tail 的大小
         for (j=0; j<1; j++) // 暂时只开一个缓冲区
             kvs_group[i].get_value[j] = (uint8_t*) malloc(kvs_group[i].true_value_length + VALUE_HEADER_LEN + VALUE_TAIL_LEN);

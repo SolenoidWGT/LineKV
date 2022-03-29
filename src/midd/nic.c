@@ -76,7 +76,7 @@ makeup_update_request(struct mehcached_item * item, uint64_t item_offset, const 
     up_req->partition_id = partition_id;
     up_req->tag = tag;
 
-    while(nic_thread_ready == false);
+    // while(nic_thread_ready == false);
 
 #ifdef NIC_MULITI_THREAD
     nic_partition_id = up_req->partition_id;
