@@ -35,6 +35,7 @@ void dhmp_send_request_handler(struct dhmp_transport* rdma_trans, struct dhmp_ms
 
 struct mica_work_context mica_work_context_mgr[2];
 unsigned long long  __partition_nums;
+pthread_t busy_cpu_workload_threads[PARTITION_MAX_NUMS];
 
 // 吞吐计数
 int avg_partition_count_num=0;
@@ -52,6 +53,7 @@ size_t SERVER_ID= (size_t)-1;
 // 由于 send 操作可能会被阻塞住，所以必须将 recv 操作让另一个线程处理，否则会出现死锁。
 // 我们对每一个 partition 启动两个线程
 void* mica_work_thread(void *data);
+void* mica_busy_cpu_workload_work_thread(void *data);
 
 int get_req_partition_id(struct post_datagram *req);
 int get_resp_partition_id(struct post_datagram *req);
@@ -625,8 +627,38 @@ int init_mulit_server_work_thread()
 			printf("get cpu affinity failed");
 			return -1;
 		}
+
+#ifdef TEST_CPU_BUSY_WORKLOAD
+		if (SERVER_ID != 0)
+		{
+			retval=pthread_create(&busy_cpu_workload_threads[i], NULL, mica_busy_cpu_workload_work_thread, (void*)data);
+			if(retval)
+			{
+				ERROR_LOG("pthread create error.");
+				return -1;
+			}
+			// 绑核
+			retval = pthread_setaffinity_np(busy_cpu_workload_threads[i], sizeof(cpu_set_t), &cpuset);
+			if (retval != 0)
+				handle_error_en(retval, "pthread_setaffinity_np");
+		}
+#endif
 	}
 }
+
+void* mica_busy_cpu_workload_work_thread(void *data)
+{
+	struct timespec start, end;
+	long long mica_total_time_ns;
+	ERROR_LOG("busy thread");
+	while(true)
+	{
+		clock_gettime(CLOCK_MONOTONIC, &start);
+		clock_gettime(CLOCK_MONOTONIC, &end);
+		mica_total_time_ns = (((end.tv_sec * 1000000000) + end.tv_nsec) - ((start.tv_sec * 1000000000) + start.tv_nsec)); \
+	}
+}
+
 
 int  get_req_partition_id(struct post_datagram *req)
 {
