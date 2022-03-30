@@ -54,11 +54,12 @@ size_t SERVER_ID= (size_t)-1;
 struct list_head partition_local_send_list[PARTITION_MAX_NUMS];   
 struct list_head main_thread_send_list[PARTITION_MAX_NUMS];
 uint64_t partition_work_nums[PARTITION_MAX_NUMS];
-
+pthread_t busy_cpu_workload_threads[PARTITION_MAX_NUMS];
 
 // 由于 send 操作可能会被阻塞住，所以必须将 recv 操作让另一个线程处理，否则会出现死锁。
 // 我们对每一个 partition 启动两个线程
 void* mica_work_thread(void *data);
+void* mica_busy_cpu_workload_work_thread(void *data);
 
 int get_req_partition_id(struct post_datagram *req);
 int get_resp_partition_id(struct post_datagram *req);
@@ -766,17 +767,12 @@ make_basic_msg(struct dhmp_msg * res_msg, struct post_datagram *resp)
 }
 
 bool 
-main_node_broadcast_matedata(struct dhmp_mica_set_request  * req_info, 
-							  struct mehcached_item * item, void * key_addr, 
-							  void * value_addr, bool is_update, bool is_maintable,
+main_node_broadcast_matedata(struct dhmp_mica_set_request  * req_info,
 							  struct post_datagram * req_msg,
 							  size_t total_length)
 {
 	DEFINE_STACK_TIMER();
     int nid, reval;
-	struct set_requset_pack req_callback_ptr;	// 默认不超过10个节点
-	struct timespec  start_g, end_g, start_l, end_l;
-	long long time1,time2,time3, time4=0;
 	size_t replica_node_num = (size_t)server_instance->config.nets_cnt - 2;
 	uint32_t partition_id = req_info->partition_id;
 	struct dhmp_transport* trans;
@@ -797,7 +793,6 @@ main_node_broadcast_matedata(struct dhmp_mica_set_request  * req_info,
 	write_task.is_imm = true;
 	mirror_node_mapping[partition_id].in_used_flag = 1;
 	trans = find_connect_server_by_nodeID(MIRROR_NODE_ID);
-
 	memset(&send_wr, 0, sizeof(struct ibv_send_wr));
 	send_wr.opcode=IBV_WR_RDMA_WRITE_WITH_IMM;
 	send_wr.imm_data  = htonl((uint32_t)partition_id);
@@ -821,6 +816,7 @@ main_node_broadcast_matedata(struct dhmp_mica_set_request  * req_info,
 
 	// 复用发送缓冲区
 	trans = find_connect_server_by_nodeID(REPLICA_NODE_HEAD_ID);
+	memset(&send_wr, 0, sizeof(struct ibv_send_wr));
 	struct dhmp_msg msg;
 	struct dhmp_task *send_task_ptr;
 	msg.data = req_msg;
@@ -850,7 +846,13 @@ main_node_broadcast_matedata(struct dhmp_mica_set_request  * req_info,
 			exit(-1);
 		}
     }
+	return true;
+}
 
+void main_node_broadcast_matedata_wait(struct dhmp_mica_set_request  * req_info, 
+										int partition_id,
+										struct mehcached_item * item)
+{
 	//MICA_TIME_COUNTER_INIT();
 	//clock_gettime(CLOCK_MONOTONIC, &start_l);
 	while(mirror_node_mapping[partition_id].in_used_flag == 1);
@@ -884,8 +886,6 @@ main_node_broadcast_matedata(struct dhmp_mica_set_request  * req_info,
 
 	item->mapping_id 		= req_info->out_mapping_id;
 	item->remote_value_addr = req_info->out_value_addr;
-
-	return true;
 }
 
 int init_mulit_server_work_thread()
@@ -922,9 +922,38 @@ int init_mulit_server_work_thread()
 		retval = pthread_setaffinity_np(mica_work_context_mgr[DHMP_MICA_SEND_INFO_REQUEST].threads[i], sizeof(cpu_set_t), &cpuset);
 		if (retval != 0)
 			handle_error_en(retval, "pthread_setaffinity_np");
+
+#ifdef TEST_CPU_BUSY_WORKLOAD
+		if (SERVER_ID != 0)
+		{
+			retval=pthread_create(&busy_cpu_workload_threads[i], NULL, mica_busy_cpu_workload_work_thread, (void*)data);
+			if(retval)
+			{
+				ERROR_LOG("pthread create error.");
+				return -1;
+			}
+			// 绑核
+			retval = pthread_setaffinity_np(busy_cpu_workload_threads[i], sizeof(cpu_set_t), &cpuset);
+			if (retval != 0)
+				handle_error_en(retval, "pthread_setaffinity_np");
+		}
+#endif
 		INFO_LOG("set affinity cpu [%d] to thread [%d]", i, i);
 	}
 }
+
+void* mica_busy_cpu_workload_work_thread(void *data)
+{
+	struct timespec start, end;
+	long long mica_total_time_ns;
+	while(true)
+	{
+		clock_gettime(CLOCK_MONOTONIC, &start);
+		clock_gettime(CLOCK_MONOTONIC, &end);
+		mica_total_time_ns = (((end.tv_sec * 1000000000) + end.tv_nsec) - ((start.tv_sec * 1000000000) + start.tv_nsec)); \
+	}
+}
+
 
 int  get_req_partition_id(struct post_datagram *req)
 {
@@ -1222,6 +1251,9 @@ dhmp_mica_main_replica_set_request_handler(struct dhmp_transport* rdma_trans, st
 	// 注意！，此处不需要调用 warpper 函数
 	// 因为传递过来的 value 地址已经添加好头部和尾部了，长度也已经加上了头部和尾部的长度。
 
+	if (IS_MAIN(server_instance->server_type))
+		main_node_broadcast_matedata(req_info, req, reuse_length);
+
 	// MICA_TIME_COUNTER_INIT();
 	item = mehcached_set(req_info->current_alloc_id,
 						table,
@@ -1326,15 +1358,15 @@ dhmp_mica_main_replica_set_request_handler(struct dhmp_transport* rdma_trans, st
 	else
 	{
 		size_t item_offset;
-		// 现在有一个问题需要确定，传递过来的 key 和 value 应该是不携带元数据的，但是此时 key 和 value 的长度已经加上了元数据的长度
-		main_node_broadcast_matedata(req_info,
-									item,
-									key_addr,
-									value_addr,
-									is_update,
-									is_maintable,
-									req,
-									reuse_length);
+		if (item != NULL)
+			main_node_broadcast_matedata_wait(req_info, req_info->partition_id, item);
+		else
+		{
+			ERROR_LOG("MICA node [%d] get set request, set key_hash is \"%lx\", set key FAIL!", \
+					server_instance->server_id, req_info->key_hash);
+			exit(-1);
+		}
+
 		if (is_maintable)
 			item_offset = get_offset_by_item(main_table, item);
 		else
@@ -1523,7 +1555,7 @@ dhmp_set_server_response_handler(struct post_datagram *resp,
 		INFO_LOG("[dhmp_set_response_handler]----tag[%d], partition[%d]", resp_info->tag, resp_info->partition_id );
 		target_item->mapping_id = resp_info->out_mapping_id;
 		target_item->remote_value_addr = resp_info->value_addr;
-		
+
 		//INFO_LOG("Node [%d] recv downstram node's key_hash \"[%lx]\"'s virtual addr info is %p", \
 						server_instance->server_id, resp_info->key_hash, target_item->remote_value_addr);
 		return;

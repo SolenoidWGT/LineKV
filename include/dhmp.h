@@ -454,12 +454,13 @@ void dump_value_by_addr(const uint8_t * value, size_t value_length);
 #define INIT_DHMP_CLIENT_BUFF_SIZE 1024*1024*8
 
 bool 
-main_node_broadcast_matedata(struct dhmp_mica_set_request  * req_info, 
-							  struct mehcached_item * item, void * key_addr, 
-							  void * value_addr, bool is_update, bool is_maintable,
+main_node_broadcast_matedata(struct dhmp_mica_set_request  * req_info,
 							  struct post_datagram * req_msg,
 							  size_t total_length);
 
+void main_node_broadcast_matedata_wait(struct dhmp_mica_set_request  * req_info, 
+										int partition_id,
+										struct mehcached_item * item);
 int init_mulit_server_work_thread();
 
 
@@ -508,5 +509,5 @@ pid_t gettid();
 #define THROUGH_TEST
 // #define PERF_TEST
 // #define MAIN_LOG_DEBUG_LATENCE
-
+// #define TEST_CPU_BUSY_WORKLOAD
 #endif
