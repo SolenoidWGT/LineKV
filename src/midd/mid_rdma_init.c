@@ -1,3 +1,4 @@
+#define _GNU_SOURCE 1
 #include <infiniband/verbs.h>
 #include <rdma/rdma_cma.h>
 #include <netinet/in.h>
@@ -11,7 +12,7 @@
 #include "dhmp_client.h"
 #include "dhmp_log.h"
 #include "dhmp_mica_shm_common.h"
-
+#include "midd_mica_benchmark.h"
 
 struct dhmp_server *server_instance=NULL;
 struct dhmp_client *client_mgr=NULL;
@@ -125,9 +126,6 @@ struct dhmp_client *  dhmp_client_init(size_t buffer_size, bool is_mica_cli)
 
 	client_mgr=(struct dhmp_client *)malloc(sizeof(struct dhmp_client));
 	memset(client_mgr, 0 , sizeof(struct dhmp_client));
-	// memset(client_mgr->ctx.stop_flag, true , sizeof(MAX_CQ_NUMS * sizeof(bool)));
-	for (i=0; i<MAX_CQ_NUMS; i++)
-		client_mgr->ctx.stop_flag[i] = true;
 
 	if(!client_mgr)
 	{
@@ -219,6 +217,21 @@ struct dhmp_client *  dhmp_client_init(size_t buffer_size, bool is_mica_cli)
 		}
 	}
 
+	cpu_set_t cpuset;
+	pthread_t cq_thread;
+	CPU_ZERO(&cpuset);
+	if (SERVER_ID < 4)
+		CPU_SET(PARTITION_NUMS+1, &cpuset);
+	else
+		CPU_SET(PARTITION_NUMS+1+20, &cpuset);
+	re=pthread_create(&cq_thread, NULL, busy_wait_cq_handler, NULL);
+	if(re)
+		handle_error_en(re, "pthread_setaffinity_np");
+	re = pthread_setaffinity_np(cq_thread, sizeof(cpu_set_t), &cpuset);
+	if (re != 0)
+		handle_error_en(re, "pthread_setaffinity_np");
+	cq_thread_stop_flag = false;
+
 	/* 初始化client段全局对象 */
 	// global_verbs_send_mr = (struct dhmp_send_mr* )malloc(sizeof(struct dhmp_send_mr));
 
@@ -247,8 +260,6 @@ struct dhmp_server * dhmp_server_init(size_t server_id)
 	}
 	memset(server_instance, 0, sizeof(struct dhmp_server));
 	// memset(server_instance->ctx.stop_flag, true , sizeof(MAX_CQ_NUMS * sizeof(bool)));
-	for (i=0; i<MAX_CQ_NUMS; i++)
-		server_instance->ctx.stop_flag[i] = true;
 
 	dhmp_hash_init();
 	dhmp_config_init(&server_instance->config, false);

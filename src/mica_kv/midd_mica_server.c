@@ -629,12 +629,11 @@ void new_main_test_through()
 void generate_local_get_mgs()
 {
     // 生成本地读负载
-    int i, idx, suiji;
+    int i, suiji;
     get_msgs_group = (struct dhmp_msg**) malloc( (size_t)(read_num+1 )* sizeof(void*));
     generate_test_data((size_t)0, (size_t)1, (size_t)__test_size , (size_t)TEST_KV_NUM);
     for (i=0; i<=(int)read_num;i++)
     {
-        // idx = (int)rand_num[i % TEST_KV_NUM];
         srand((unsigned int)i);
         suiji = rand()%(TEST_KV_NUM);
         get_msgs_group[i] = pack_test_get_resq(&kvs_group[suiji], i, (size_t)__test_size + VALUE_HEADER_LEN + VALUE_TAIL_LEN);

@@ -54,7 +54,7 @@ size_t SERVER_ID= (size_t)-1;
 struct list_head partition_local_send_list[PARTITION_MAX_NUMS];   
 struct list_head main_thread_send_list[PARTITION_MAX_NUMS];
 uint64_t partition_work_nums[PARTITION_MAX_NUMS];
-pthread_t busy_cpu_workload_threads[PARTITION_MAX_NUMS];
+pthread_t busy_cpu_workload_threads[PARTITION_MAX_NUMS][PARTITION_MAX_NUMS];
 
 // 由于 send 操作可能会被阻塞住，所以必须将 recv 操作让另一个线程处理，否则会出现死锁。
 // 我们对每一个 partition 启动两个线程
@@ -853,6 +853,7 @@ void main_node_broadcast_matedata_wait(struct dhmp_mica_set_request  * req_info,
 										int partition_id,
 										struct mehcached_item * item)
 {
+	struct timespec start_l, end_l;
 	//MICA_TIME_COUNTER_INIT();
 	//clock_gettime(CLOCK_MONOTONIC, &start_l);
 	while(mirror_node_mapping[partition_id].in_used_flag == 1);
@@ -924,18 +925,24 @@ int init_mulit_server_work_thread()
 			handle_error_en(retval, "pthread_setaffinity_np");
 
 #ifdef TEST_CPU_BUSY_WORKLOAD
-		if (SERVER_ID != 0)
+		if (SERVER_ID == 3)
 		{
-			retval=pthread_create(&busy_cpu_workload_threads[i], NULL, mica_busy_cpu_workload_work_thread, (void*)data);
-			if(retval)
+			int j=0;
+			if (i == 2 || i== 4)
 			{
-				ERROR_LOG("pthread create error.");
-				return -1;
+				for (j=0; j<1; j++)
+				{
+					retval=pthread_create(&busy_cpu_workload_threads[i][j], NULL, mica_busy_cpu_workload_work_thread, (void*)data);
+					if(retval)
+					{
+						ERROR_LOG("pthread create error.");
+						return -1;
+					}
+					retval = pthread_setaffinity_np(busy_cpu_workload_threads[i][j], sizeof(cpu_set_t), &cpuset);
+					if (retval != 0)
+						handle_error_en(retval, "pthread_setaffinity_np");
+				}
 			}
-			// 绑核
-			retval = pthread_setaffinity_np(busy_cpu_workload_threads[i], sizeof(cpu_set_t), &cpuset);
-			if (retval != 0)
-				handle_error_en(retval, "pthread_setaffinity_np");
 		}
 #endif
 		INFO_LOG("set affinity cpu [%d] to thread [%d]", i, i);
@@ -946,6 +953,9 @@ void* mica_busy_cpu_workload_work_thread(void *data)
 {
 	struct timespec start, end;
 	long long mica_total_time_ns;
+	pid_t pid = gettid();
+	pthread_t tid = pthread_self();
+	ERROR_LOG("Pid [%d] Tid [%ld]", pid, tid);
 	while(true)
 	{
 		clock_gettime(CLOCK_MONOTONIC, &start);
@@ -1131,7 +1141,7 @@ void* mica_work_thread(void *data)
 	while (true)
 	{
 		//memory_barrier();
-		if (partition_work_nums[partition_id] != 0  || retry_time >= 1000)
+		if (partition_work_nums[partition_id] >50  || retry_time >= 1000)
 		{
 			// if (*flag == '1')
 			// {
@@ -1202,6 +1212,7 @@ dhmp_mica_get_MR_request_handler(struct dhmp_transport* rdma_trans,
 size_t
 dhmp_mica_main_replica_set_request_handler(struct dhmp_transport* rdma_trans, struct post_datagram *req)
 {
+	INFO_LOG("dhmp_mica_main_replica_set_request_handler");
 	DEFINE_STACK_TIMER();
 	// MICA_TIME_COUNTER_INIT();
 	struct timespec start_g, end_g;
@@ -1336,7 +1347,7 @@ dhmp_mica_main_replica_set_request_handler(struct dhmp_transport* rdma_trans, st
 			ERROR_LOG("ibv_post_send error[%d], reason is [%s]", errno,strerror(errno));
 			exit(-1);
 		}
-
+		INFO_LOG("replica send 1 resp");
 		if (!IS_HEAD(server_instance->server_type) &&
 			!IS_MIRROR(server_instance->server_type))
 		{
@@ -1354,10 +1365,12 @@ dhmp_mica_main_replica_set_request_handler(struct dhmp_transport* rdma_trans, st
 			}
 			// INFO_LOG("[dhmp_post_sendr]->[DIRECT-upstream]----tag[%d], partition[%d]", req_info->tag, req_info->partition_id );
 		}
+		INFO_LOG("replica send 2 resp");
 	}
 	else
 	{
 		size_t item_offset;
+		INFO_LOG("main_node_broadcast_matedata_wait");
 		if (item != NULL)
 			main_node_broadcast_matedata_wait(req_info, req_info->partition_id, item);
 		else
@@ -1389,7 +1402,7 @@ dhmp_mica_main_replica_set_request_handler(struct dhmp_transport* rdma_trans, st
 			partition_count_set_done_flag[req_info->partition_id] = true;
 		}
 	}
-
+	INFO_LOG("set end");
 #ifdef MAIN_LOG_DEBUG_LATENCE
 		if (server_instance->server_id == 0  &&
 			req_info->partition_id == 0)
@@ -1446,6 +1459,7 @@ dhmp_mica_mirror_set_request_handler(struct dhmp_transport* rdma_trans, uint32_t
 
 	resp_msg_ptr = make_basic_msg(&resp_msg, resp);
 	dhmp_post_send(rdma_trans, resp_msg_ptr, (size_t)partition_id);
+	INFO_LOG("mirror set");
 
 	// memmove(local_test_buff, local_test_buff, 65536);
 
@@ -1521,9 +1535,9 @@ dhmp_set_server_response_handler(struct post_datagram *resp,
 					exit(-1);
 				}
 			}
-			__sync_fetch_and_sub(&req_info->count_num, (uint32_t)1);
+			//__sync_fetch_and_sub(&req_info->count_num, (uint32_t)1);
 			// ERROR_LOG("Replica_NODE[%d]_ response----tag[%d], partition[%d]", resp->node_id, req_info->tag, req_info->partition_id );	
-			// req_info->count_num--;	// 单线程处理，线程安全
+			req_info->count_num--;	// 单线程处理，线程安全
 			// resp->req_ptr->done_flag = true;
 			return;
 		}
@@ -1544,17 +1558,17 @@ dhmp_set_server_response_handler(struct post_datagram *resp,
 		// 有可能下游节点已经向上游节点返回set信息，但是主节点的set信息元数据还没有到达，因此需要while等待
 		//INFO_LOG("key_hash is %lx, len is %lu, addr is %p ", key_hash, key_length, key_addr);
 		
-		//MICA_TIME_COUNTER_INIT();
-		while (true)
-		{
-			target_item = find_item(table, key_hash , key_addr, key_length);
-			if (target_item != NULL)
-				break;
-			//MICA_TIME_LIMITED(resp_info->tag, 50);
-		}
-		INFO_LOG("[dhmp_set_response_handler]----tag[%d], partition[%d]", resp_info->tag, resp_info->partition_id );
-		target_item->mapping_id = resp_info->out_mapping_id;
-		target_item->remote_value_addr = resp_info->value_addr;
+		// MICA_TIME_COUNTER_INIT();
+		// while (true)
+		// {
+		// 	target_item = find_item(table, key_hash , key_addr, key_length);
+		// 	if (target_item != NULL)
+		// 		break;
+		// 	MICA_TIME_LIMITED(resp_info->tag, 50);
+		// }
+		// //INFO_LOG("[dhmp_set_response_handler]----tag[%d], partition[%d]", resp_info->tag, resp_info->partition_id );
+		// target_item->mapping_id = resp_info->out_mapping_id;
+		// target_item->remote_value_addr = resp_info->value_addr;
 
 		//INFO_LOG("Node [%d] recv downstram node's key_hash \"[%lx]\"'s virtual addr info is %p", \
 						server_instance->server_id, resp_info->key_hash, target_item->remote_value_addr);
@@ -1648,6 +1662,8 @@ void dhmp_send_request_handler(struct dhmp_transport* rdma_trans,
 		case MICA_REPLICA_UPDATE_REQUEST:
 			// 非分区的操作就在主线程执行（可能的性能问题，也许需要一个专门的线程负责处理非分区的操作，但是非分区操作一般是初始化操作，对后续性能影响不明显）
 			__dhmp_send_request_handler(rdma_trans, msg, PARTITION_NUMS, &is_need_post_recv);
+			// msg->main_thread_set_id = -1;
+			// distribute_partition_resp(0,  rdma_trans, msg,0, 0);
 			*is_async = false;
 			Assert(is_need_post_recv == true);
 			break;

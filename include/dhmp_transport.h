@@ -52,7 +52,7 @@ struct dhmp_cq{
 	
 	/*add the fd of comp_channel into the ctx*/
 	struct dhmp_context *ctx;
-	bool * stop_flag_ptr;
+	int cq_id;
 };
 
 struct dhmp_mr{
@@ -170,5 +170,10 @@ int dhmp_rdma_write_mica_warpper (struct dhmp_transport* rdma_trans,
 int mica_clinet_connect_server(int buffer_size, int target_id);
 
 extern struct timespec start_set_g, end_set_g;
+
+extern struct dhmp_cq* dcq_array[MAX_CQ_NUMS];
+extern int total_cq_nums;
+extern bool cq_thread_is_launch;
+extern volatile bool cq_thread_stop_flag;
 #endif
 

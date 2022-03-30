@@ -507,7 +507,11 @@ extern struct dhmp_msg** get_msgs_group;
 pid_t gettid();
 
 #define THROUGH_TEST
+
 // #define PERF_TEST
+
 // #define MAIN_LOG_DEBUG_LATENCE
+
 // #define TEST_CPU_BUSY_WORKLOAD
+
 #endif

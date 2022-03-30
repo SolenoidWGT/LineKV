@@ -32,7 +32,8 @@ struct dhmp_context{
 	int epoll_fd;
 	bool stop;
 	pthread_t epoll_thread;
-	bool stop_flag[MAX_CQ_NUMS];
+	// bool stop_flag[MAX_CQ_NUMS];
+	int cq_id;
 	pthread_t busy_wait_cq_thread[MAX_CQ_NUMS];
 };
 

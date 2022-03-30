@@ -910,7 +910,7 @@ mehcached_get(uint8_t current_alloc_id MEHCACHED_UNUSED, struct mehcached_table 
             check_version_is_same(item, value_length, MEHCACHED_ROUNDUP8(key_length)) == false)
         {
             *get_status=MICA_VERSION_IS_DIRTY;
-            ERROR_LOG("version is not equal, need peer node retry");
+            // ERROR_LOG("version is not equal, need peer node retry");
             return false;
         }
 

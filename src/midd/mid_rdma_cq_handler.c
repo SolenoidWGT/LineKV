@@ -11,6 +11,59 @@
 #include "dhmp_log.h"
 #include "dhmp_dev.h"
 #include "dhmp_server.h"
+struct dhmp_cq* dcq_array[MAX_CQ_NUMS];
+int total_cq_nums=0;
+bool cq_thread_is_launch=false;
+volatile bool cq_thread_stop_flag=true;
+static void dhmp_wc_success_handler(struct ibv_wc* wc);
+static void dhmp_wc_error_handler(struct ibv_wc* wc);
+/**
+ *	dhmp_comp_channel_handler:create a completion channel handler
+ *  note:set the following function to the cq handle work completion
+ *  epoll回调函数入口
+ */
+void dhmp_comp_channel_handler()
+{
+	// struct dhmp_cq* dcq =(struct dhmp_cq*) data;
+	struct ibv_cq* cq;
+	void* cq_ctx;
+	struct ibv_wc wc;
+	int err=0, i;
+	int cq_nums = server_instance->config.nets_cnt - 1;
+
+	while(cq_thread_stop_flag == true);
+
+	while(true)
+	{
+		for (i=0; i<MAX_CQ_NUMS; i++)
+		{
+			if (dcq_array[i] == NULL)
+				continue;
+			// //while(ibv_get_cq_event(dcq->comp_channel, &cq, &cq_ctx));
+			// err=ibv_get_cq_event(dcq->comp_channel, &cq, &cq_ctx);
+			// if(err)
+			// {
+			// 	//ERROR_LOG("ibv get cq event error.");
+			// 	continue;
+			// }
+
+			// ibv_ack_cq_events(dcq->cq, 1);
+			// err=ibv_req_notify_cq(dcq->cq, 0);
+			// if(err)
+			// {
+			// 	//ERROR_LOG("ibv req notify cq error.");
+			// 	continue;
+			// }
+			if(ibv_poll_cq(dcq_array[i]->cq, 1, &wc))
+			{
+				if(wc.status==IBV_WC_SUCCESS)
+					dhmp_wc_success_handler(&wc);
+				else
+					dhmp_wc_error_handler(&wc);
+			}
+		}
+	}
+}
 
 /**
  *	the success work completion handler function
@@ -134,58 +187,11 @@ static void dhmp_wc_error_handler(struct ibv_wc* wc)
 
 }
 
-/**
- *	dhmp_comp_channel_handler:create a completion channel handler
- *  note:set the following function to the cq handle work completion
- *  epoll回调函数入口
- */
-void dhmp_comp_channel_handler(struct dhmp_cq* dcq)
-{
-	// struct dhmp_cq* dcq =(struct dhmp_cq*) data;
-	struct ibv_cq* cq;
-	void* cq_ctx;
-	struct ibv_wc wc;
-	int err=0;
-
-	while(true)
-	{
-		if (*dcq->stop_flag_ptr == true)
-		{
-			INFO_LOG("dhmp_comp_channel_handler thread exit!");
-			pthread_exit(0);
-		}
-
-		// //while(ibv_get_cq_event(dcq->comp_channel, &cq, &cq_ctx));
-		// err=ibv_get_cq_event(dcq->comp_channel, &cq, &cq_ctx);
-		// if(err)
-		// {
-		// 	//ERROR_LOG("ibv get cq event error.");
-		// 	continue;
-		// }
-
-		// ibv_ack_cq_events(dcq->cq, 1);
-		// err=ibv_req_notify_cq(dcq->cq, 0);
-		// if(err)
-		// {
-		// 	//ERROR_LOG("ibv req notify cq error.");
-		// 	continue;
-		// }
-
-		while(ibv_poll_cq(dcq->cq, 1, &wc))
-		{
-			if(wc.status==IBV_WC_SUCCESS)
-				dhmp_wc_success_handler(&wc);
-			else
-				dhmp_wc_error_handler(&wc);
-		}
-	}
-}
-
 void* busy_wait_cq_handler(void* data)
 {
 	pid_t pid = gettid();
 	pthread_t tid = pthread_self();
 	ERROR_LOG("Pid [%d] Tid [%ld]", pid, tid);
-	struct dhmp_cq* dcq = (struct dhmp_cq* )data;
-	dhmp_comp_channel_handler(dcq);
+	// struct dhmp_cq* dcq = (struct dhmp_cq* )data;
+	dhmp_comp_channel_handler();
 }

@@ -64,7 +64,7 @@ micaserver_get_cliMR(struct replica_mappings  *resp_mapping_ptr, size_t target_i
 	DEFINE_STACK_TIMER();
 	MICA_TIME_COUNTER_INIT();
 	while(req_msg->done_flag == false)
-		MICA_TIME_LIMITED(0, 30*TIMEOUT_LIMIT_MS);
+		MICA_TIME_LIMITED(0, 100*TIMEOUT_LIMIT_MS);
 
 out:
 	free(base);
@@ -150,7 +150,7 @@ mica_ask_nodeID_req(struct dhmp_transport* new_rdma_trans)
 	DEFINE_STACK_TIMER();
 	MICA_TIME_COUNTER_INIT();
 	while(req_msg->done_flag == false)
-		MICA_TIME_LIMITED(0, 20*TIMEOUT_LIMIT_MS);
+		MICA_TIME_LIMITED(0, 100*TIMEOUT_LIMIT_MS);
 
 	result = req_data->node_id;
 	free(base);

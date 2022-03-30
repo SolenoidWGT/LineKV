@@ -192,16 +192,16 @@ struct dhmp_cq* dhmp_cq_get(struct dhmp_device* device, struct dhmp_context* ctx
 	dcq->device=device;
 
 	// 经过修改后有多个线程去轮询不同的cq
-	for (i=0 ;i<MAX_CQ_NUMS;i++){
-		if (ctx->stop_flag[i] == true)
-			break;
-	}
+	// for (i=0 ;i<MAX_CQ_NUMS;i++){
+	// 	if (ctx->stop_flag[i] == true)
+	// 		break;
+	// }
 
-	if (i == MAX_CQ_NUMS)
-	{
-		ERROR_LOG("MAX_CQ_NUMS");
-		exit(-1);
-	}
+	// if (i == MAX_CQ_NUMS)
+	// {
+	// 	ERROR_LOG("MAX_CQ_NUMS");
+	// 	exit(-1);
+	// }
 
 	// struct sched_param schedp;
 	// pthread_attr_t attr;
@@ -227,6 +227,11 @@ struct dhmp_cq* dhmp_cq_get(struct dhmp_device* device, struct dhmp_context* ctx
 	// 	printf("pthread_attr_setschedparam:%d\n", retval);
 	// 	return NULL;
 	// }
+	ctx->cq_id = total_cq_nums;
+	dcq->cq_id = ctx->cq_id;
+	dcq_array[ctx->cq_id] = dcq;
+	total_cq_nums++;
+/*
 	cpu_set_t cpuset;
 	CPU_ZERO(&cpuset);
 	if (SERVER_ID < 4)
@@ -241,12 +246,12 @@ struct dhmp_cq* dhmp_cq_get(struct dhmp_device* device, struct dhmp_context* ctx
 		ERROR_LOG("context add comp channel fd error.");
 		goto cleanchannel;
 	}
-	// 绑核
 	retval = pthread_setaffinity_np(ctx->busy_wait_cq_thread[i], sizeof(cpu_set_t), &cpuset);
 	if (retval != 0)
 		handle_error_en(retval, "pthread_setaffinity_np");
 
 	trans_thread_idx++;
+*/
 	return dcq;
 
 cleaneventfd:
@@ -314,8 +319,8 @@ static void dhmp_qp_release(struct dhmp_transport* rdma_trans)
 	if(rdma_trans->qp)
 	{
 		// 终止 cq 轮询线程
-		*(rdma_trans->dcq->stop_flag_ptr) = true;
-		trans_thread_idx--;
+		dcq_array[rdma_trans->dcq->cq_id] = NULL;
+		total_cq_nums--;
 
 		ibv_destroy_qp(rdma_trans->qp);
 		ibv_destroy_comp_channel(rdma_trans->dcq->comp_channel);
