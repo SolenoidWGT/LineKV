@@ -240,7 +240,7 @@ struct dhmp_cq* dhmp_cq_get(struct dhmp_device* device, struct dhmp_context* ctx
 		ERROR_LOG("context add comp channel fd error.");
 		goto cleanchannel;
 	}
-	retval = pthread_getaffinity_np(ctx->busy_wait_cq_thread[i], sizeof(cpu_set_t), &cpuset);
+	retval = pthread_setaffinity_np(ctx->busy_wait_cq_thread[i], sizeof(cpu_set_t), &cpuset);
 	if (retval)
 	{
 		printf("get cpu affinity failed");

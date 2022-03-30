@@ -35,7 +35,7 @@ void dhmp_send_request_handler(struct dhmp_transport* rdma_trans, struct dhmp_ms
 
 struct mica_work_context mica_work_context_mgr[2];
 unsigned long long  __partition_nums;
-pthread_t busy_cpu_workload_threads[PARTITION_MAX_NUMS];
+pthread_t busy_cpu_workload_threads[PARTITION_MAX_NUMS][PARTITION_MAX_NUMS];
 
 // 吞吐计数
 int avg_partition_count_num=0;
@@ -621,7 +621,7 @@ int init_mulit_server_work_thread()
 			return -1;
 		}
 
-		retval = pthread_getaffinity_np(mica_work_context_mgr[DHMP_MICA_SEND_INFO_REQUEST].threads[i], sizeof(cpu_set_t), &cpuset);
+		retval = pthread_setaffinity_np(mica_work_context_mgr[DHMP_MICA_SEND_INFO_REQUEST].threads[i], sizeof(cpu_set_t), &cpuset);
 		if (retval)
 		{
 			printf("get cpu affinity failed");
@@ -629,18 +629,24 @@ int init_mulit_server_work_thread()
 		}
 
 #ifdef TEST_CPU_BUSY_WORKLOAD
-		if (SERVER_ID != 0)
+		if (SERVER_ID == 2)
 		{
-			retval=pthread_create(&busy_cpu_workload_threads[i], NULL, mica_busy_cpu_workload_work_thread, (void*)data);
-			if(retval)
+			int j=0;
+			if (i == 2 || i== 4)
 			{
-				ERROR_LOG("pthread create error.");
-				return -1;
+				for (j=0; j<1; j++)
+				{
+					retval=pthread_create(&busy_cpu_workload_threads[i][j], NULL, mica_busy_cpu_workload_work_thread, (void*)data);
+					if(retval)
+					{
+						ERROR_LOG("pthread create error.");
+						return -1;
+					}
+					retval = pthread_setaffinity_np(busy_cpu_workload_threads[i][j], sizeof(cpu_set_t), &cpuset);
+					if (retval != 0)
+						handle_error_en(retval, "pthread_setaffinity_np");
+				}
 			}
-			// 绑核
-			retval = pthread_setaffinity_np(busy_cpu_workload_threads[i], sizeof(cpu_set_t), &cpuset);
-			if (retval != 0)
-				handle_error_en(retval, "pthread_setaffinity_np");
 		}
 #endif
 	}
