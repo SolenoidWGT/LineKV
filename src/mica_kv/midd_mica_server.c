@@ -132,8 +132,8 @@ int main(int argc,char *argv[])
             else if(strcmp(argv[i], "0.2") == 0)
             {
                 INFO_LOG(" RW_TATE is [%s]", argv[i]);
-                read_num = 4;
-                update_num = 1;
+                read_num = 80;
+                update_num = 20;
             }
             else if(strcmp(argv[i], "0.01") == 0)
             {
@@ -180,10 +180,11 @@ int main(int argc,char *argv[])
     server_instance = dhmp_server_init(SERVER_ID);
 
     int available_r_node_num;
-    if (main_node_is_readable)
-        available_r_node_num = server_instance->config.nets_cnt;
-    else
+    // if (main_node_is_readable)
+    //     available_r_node_num = server_instance->config.nets_cnt;
+    // else
         available_r_node_num = (server_instance->config.nets_cnt - 1);
+        main_node_is_readable=false;
 
     if (!is_all_set_all_get)
     {
@@ -245,11 +246,37 @@ int main(int argc,char *argv[])
         {
             // op_gaps[0] 表示每隔 op_gaps[0] 个 set 需要执行一次 get
             ERROR_LOG("Write is more!");
-            op_gaps[0] = update_num / __read_num_per_node;  // 要保留无法整除的部分
-            little_idx = 0;
-            end_round = 1;
-            left_op_nums = update_num - (op_gaps[0] * __read_num_per_node); // 要保留无法整除的部分
-            final_get_num =( __read_num_per_node-left_op_nums) * available_r_node_num;
+            while(__read_num_per_node > 10 && round < 4)
+            {
+
+                if (__read_num_per_node > update_num)
+                {
+                    op_gaps[round] = __read_num_per_node / update_num;  // 要保留无法整除的部分
+                    divisible_get_nums[round] = (op_gaps[round] *update_num)*available_r_node_num;
+                    __read_num_per_node = __read_num_per_node - (op_gaps[round]  * update_num); // 要保留无法整除的部分
+                }
+                else
+                {
+                    op_gaps[round] = (int)ceil((double)update_num / (double)__read_num_per_node);  // 要保留无法整除的部分
+                    divisible_get_nums[round] = (update_num / op_gaps[round])*available_r_node_num;
+                    __read_num_per_node = __read_num_per_node - (update_num / op_gaps[round]); // 要保留无法整除的部分
+                    if (little_idx==-1)
+                        little_idx=round;  
+                }
+                ERROR_LOG("count:[%d], op_gaps:[%d], divisible_get_nums[%d], __read_num_per_node[%d]", round, op_gaps[round], divisible_get_nums[round], __read_num_per_node);
+                round++;
+                end_round = round;
+            }
+            // 每执行了 op_gap_2 个 set 之后需要额外执行 1 次 get 
+            final_get_num=0;
+            for (i=0; i<4; i++)
+                    final_get_num += divisible_get_nums[i];
+
+            // op_gaps[0] = update_num / __read_num_per_node;  // 要保留无法整除的部分
+            // little_idx = 0;
+            // end_round = 1;
+            // left_op_nums = update_num - (op_gaps[0] * __read_num_per_node); // 要保留无法整除的部分
+            // final_get_num =( __read_num_per_node-left_op_nums) * available_r_node_num;
             get_is_more = false;
             ERROR_LOG("FINALLY: update_num[%d], __read_num_per_node[%d], left_op_nums:[%d],  final_get_num:[%d], get_is_more[%d], op_gaps:[%d]",update_num, __read_num_per_node, left_op_nums, final_get_num ,get_is_more, op_gaps[0]);
             Assert(little_idx != -1 && little_idx < end_round);

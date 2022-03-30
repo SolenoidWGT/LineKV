@@ -514,4 +514,8 @@ pid_t gettid();
 
 // #define TEST_CPU_BUSY_WORKLOAD
 
+#define READ_AFTER_WRITE
+
+
+
 #endif

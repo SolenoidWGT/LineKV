@@ -18,6 +18,7 @@
 #include "dhmp.h"
 #include "dhmp_top_api.h"
 #include "midd_mica_benchmark.h"
+#include "hash.h"
 //#define MAIN_LOG_DEBUG_LATENCE
 #include <linux/unistd.h>
 pid_t gettid(void){ return syscall(__NR_gettid); }
@@ -333,6 +334,31 @@ dhmp_node_id_response_handler(struct dhmp_transport* rdma_trans,
 	req_info->node_id = resp_info->resp_node_id;
 
 	resp->req_ptr->done_flag = true;
+}
+
+static void
+dhmp_mica_get_request_handler_by_addr(void * key_addr, size_t key_length, size_t expect_length)
+{
+	int re;
+	void * out_value;
+	size_t in_out_value_length = expect_length;
+	uint32_t out_expire_time;
+	MICA_GET_STATUS get_status;
+	struct mehcached_table *table = &table_o;
+	uint64_t key_hash = hash(key_addr, key_length);
+	out_value = malloc(expect_length);
+	re = mehcached_get(0,
+						table,
+						key_hash,
+						key_addr,
+						key_length,
+						out_value,
+						&in_out_value_length,
+						&out_expire_time,
+						false, 
+						false,
+						&get_status);	// 我们获取带 header 和 tailer 的 value
+	free(out_value);
 }
 
 static struct post_datagram * 
@@ -1471,6 +1497,13 @@ dhmp_mica_mirror_set_request_handler(struct dhmp_transport* rdma_trans, uint32_t
 size_t
 dhmp_mica_set_request_handler(struct dhmp_transport* rdma_trans, struct post_datagram *req, uint32_t imm_data)
 {
+#ifdef READ_AFTER_WRITE
+	size_t key = (size_t)imm_data;
+	key = key>>16;
+	size_t except_length = __test_size + VALUE_HEADER_LEN + VALUE_TAIL_LEN;
+	dhmp_mica_get_request_handler_by_addr(&key, sizeof(size_t), except_length);
+#endif
+
 	if (IS_MAIN(server_instance->server_type) || 
 		IS_REPLICA(server_instance->server_type))
 		return dhmp_mica_main_replica_set_request_handler(rdma_trans, req);
