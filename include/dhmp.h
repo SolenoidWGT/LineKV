@@ -127,6 +127,9 @@ enum mica_send_info_type{
 
 	MICA_GET_P2P_MR_REQUEST,
 	MICA_GET_P2P_MR_RESPONSE,
+
+	DHMP_MICA_DIRTY_GET_REQUEST,
+	DHMP_MICA_DIRTY_GET_RESPONSE,
 };
 
 enum middware_state{
@@ -500,11 +503,19 @@ void dhmp_send_request_handler(struct dhmp_transport* rdma_trans,
 									struct dhmp_msg* msg, 
 									bool * is_async,
 									 __time_t time_start1, 
-									 __syscall_slong_t time_start2);
+									 __syscall_slong_t time_start2,
+									 bool is_cq_thread);
 
 void distribute_partition_resp(int partition_id, struct dhmp_transport* rdma_trans, struct dhmp_msg* msg,  __time_t time_start1, __syscall_slong_t time_start2);
 extern struct dhmp_msg** get_msgs_group;
 pid_t gettid();
+
+extern struct dhmp_msg* get_msg_readonly[PARTITION_MAX_NUMS];
+extern void* penalty_addr;
+extern double *pf_partition[PARTITION_MAX_NUMS];
+extern int *rand_num_partition[PARTITION_MAX_NUMS];
+extern int penalty_partition_count[PARTITION_MAX_NUMS];
+void exit_print_status();
 
 #define THROUGH_TEST
 

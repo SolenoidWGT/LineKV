@@ -12,7 +12,7 @@
 #define TEST_KV_NUM 6
 
 extern int __access_num;
-extern int rand_num[TEST_KV_NUM];
+// extern int rand_num[TEST_KV_NUM];
 extern int read_num, update_num;
 extern enum WORK_LOAD_DISTRIBUTED workload_type;
 extern uint64_t set_counts, get_counts;
@@ -28,8 +28,10 @@ extern bool is_all_set_all_get;
 extern int avg_partition_count_num;
 extern size_t SERVER_ID;
 
-void pick_zipfian(int max_num);
-void pick_uniform(int max_num);
+extern int * read_num_penalty;
+extern double penalty_rw_rate;
+void pick_zipfian(double pf[], int rand_num[], int max_num);
+void pick_uniform(double pf[], int rand_num[], int max_num);
 
 enum WORK_LOAD_DISTRIBUTED
 {

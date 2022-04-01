@@ -31,11 +31,13 @@ struct dhmp_msg* all_access_set_group;
 int *partition_req_count_array;
 
 void generate_local_get_mgs();
+void generate_local_get_mgs_handler(size_t avg_parition_read_max_length);
+void set_workloada_server();
 
 int main(int argc,char *argv[])
 {
     // 初始化集群 rdma 连接
-    int i, retval;
+    int i;
     int nic_thread_num;
     size_t numa_nodes[] = {(size_t)-1};;
     const size_t page_size = 4*1024UL;
@@ -103,20 +105,22 @@ int main(int argc,char *argv[])
                 // update_num = ACCESS_NUM /2;
                 read_num = 5;
                 update_num = 5;
+                penalty_rw_rate = 0.5;
             }
             else if(strcmp(argv[i], "1.0") == 0)
             {
                 INFO_LOG(" RW_TATE is [%s]", argv[i]);
                 read_num = 0;
                 update_num = 6000;
-                get_is_more = false;
                 is_all_set_all_get = true;
+                penalty_rw_rate=1.0;
             }
             else if(strcmp(argv[i], "0.75") == 0)
             {
                 INFO_LOG(" RW_TATE is [%s]", argv[i]);
                 read_num = 1;
                 update_num =3;
+                penalty_rw_rate = 0.75;
             }
             // 读比写多比较麻烦，需要各节点自己自动执行写操作
             // 最极端的情况是全读
@@ -126,14 +130,14 @@ int main(int argc,char *argv[])
                 INFO_LOG(" RW_TATE is [%s]", argv[i]);
                 read_num = 6000;
                 update_num = 1;     // 至少有一个写操作
-                get_is_more = true;
                 is_all_set_all_get = true;
             }
             else if(strcmp(argv[i], "0.2") == 0)
             {
                 INFO_LOG(" RW_TATE is [%s]", argv[i]);
-                read_num = 80;
-                update_num = 20;
+                read_num = 4;
+                update_num = 1;
+                penalty_rw_rate = 0.2;
             }
             else if(strcmp(argv[i], "0.01") == 0)
             {
@@ -141,6 +145,7 @@ int main(int argc,char *argv[])
                 read_num = 99;
                 update_num = 1;
                 main_node_is_readable = true;
+                penalty_rw_rate = 0.01;
             }
             else if(strcmp(argv[i], "0.05") == 0)
             {
@@ -148,6 +153,7 @@ int main(int argc,char *argv[])
                 read_num = 19;
                 update_num = 1;
                 main_node_is_readable = true;
+                penalty_rw_rate = 0.05;
             }
             else
             {
@@ -168,17 +174,12 @@ int main(int argc,char *argv[])
 #else
     nic_thread_num = 1;
 #endif
-    // 初始化 hook
-    // set_main_node_thread_addr(&main_node_nic_thread_ptr);
-    // set_replica_node_thread_addr(&replica_node_nic_thread_ptr);
-    // init_busy_wait_rdma_buff();
 
     // 初始化本地存储，分配 page
 	mehcached_shm_init(page_size, num_numa_nodes, num_pages_to_try, num_pages_to_reserve);
 
     // 初始化 rdma 连接
     server_instance = dhmp_server_init(SERVER_ID);
-
     int available_r_node_num;
     // if (main_node_is_readable)
     //     available_r_node_num = server_instance->config.nets_cnt;
@@ -186,107 +187,70 @@ int main(int argc,char *argv[])
         available_r_node_num = (server_instance->config.nets_cnt - 1);
         main_node_is_readable=false;
 
+    penalty_addr = (void *) malloc((size_t)__test_size);
+    int update_num_thread;
+    little_idx=-1;      //重要！！！！
     if (!is_all_set_all_get)
     {
-        int __read_num_per_node;
-        //int divisible_read_num;
-        int left_op_nums;
-        int final_get_num;
+        int __read_num_per_node, __read_num_per_thread;
+        int final_get_num_per_node=0, final_get_num_per_threads=0, final_set_num_per_node=0;
 
         read_num = 1000 * read_num;
         update_num = 1000 * update_num;
 
         __read_num_per_node = read_num / available_r_node_num;  // 丢弃无法整除的部分
-        //divisible_read_num = __read_num_per_node * available_r_node_num;
+        __read_num_per_thread = __read_num_per_node / (int)PARTITION_NUMS;
 
         int i;
-        int divisible_get_nums[4];
-        //int loop_count_per_round[4];
-        memset(divisible_get_nums, 0, sizeof(int)*4);
+        int divisible_thread_get_nums[4];
+        memset(divisible_thread_get_nums, 0, sizeof(int)*4);
         // little_idx 之前的 op_gaps[idx] 表示需要每执行一次 set 要执行 for op_gaps[idx] 个 get
         // little_idx 之后(包括little_idx)的 op_gaps[idx] 表示需要每执行 op_gaps[idx] 次 set 要执行 1 次 get
         // 有了 little_idx  之后 get_is_more 就不重要了，只根据 little_idx 判断该进行 for 还是取 mod
         int round=0;
-        // 读比写多
-        if (__read_num_per_node > update_num)
+        update_num_thread = update_num / (int)PARTITION_NUMS;
+        ERROR_LOG("__read_num_per_node[%d], __read_num_per_thread [%d], update_num_thread[%d]", __read_num_per_node, __read_num_per_thread, update_num_thread);
+
+        while(__read_num_per_thread > 10 && round < 4)
         {
-            ERROR_LOG("Read is more!");
-            while(__read_num_per_node > 10 && round < 4)
+
+            if (__read_num_per_thread > update_num_thread)
             {
+                op_gaps[round] = __read_num_per_thread / update_num_thread;  // 要保留无法整除的部分
+                __read_num_per_thread = __read_num_per_thread - (op_gaps[round]  * update_num_thread); // 要保留无法整除的部分
 
-                if (__read_num_per_node > update_num)
-                {
-                    op_gaps[round] = __read_num_per_node / update_num;  // 要保留无法整除的部分
-                    divisible_get_nums[round] = (op_gaps[round] *update_num)*available_r_node_num;
-                    __read_num_per_node = __read_num_per_node - (op_gaps[round]  * update_num); // 要保留无法整除的部分
-                }
-                else
-                {
-                    op_gaps[round] = (int)ceil((double)update_num / (double)__read_num_per_node);  // 要保留无法整除的部分
-                    divisible_get_nums[round] = (update_num / op_gaps[round])*available_r_node_num;
-                    __read_num_per_node = __read_num_per_node - (update_num / op_gaps[round]); // 要保留无法整除的部分
-                    if (little_idx==-1)
-                        little_idx=round;  
-                }
-                ERROR_LOG("count:[%d], op_gaps:[%d], divisible_get_nums[%d], __read_num_per_node[%d]", round, op_gaps[round], divisible_get_nums[round], __read_num_per_node);
-                round++;
-                end_round = round;
+                divisible_thread_get_nums[round] = (op_gaps[round] *update_num_thread);
             }
-            // 每执行了 op_gap_2 个 set 之后需要额外执行 1 次 get 
-            final_get_num=0;
-            for (i=0; i<4; i++)
-                    final_get_num += divisible_get_nums[i];
-
-            get_is_more = true;
-            ERROR_LOG("FINALLY: update_num[%d], final_get_num:[%d], little_idx[%d], get_is_more[%d]",update_num, final_get_num,little_idx, get_is_more);
-            ERROR_LOG("FINALLY: update_num[%d], __read_num_per_node[%d],  final_get_num:[%d], get_is_more[%d], op_gaps:[%d]",update_num, __read_num_per_node, final_get_num ,get_is_more, op_gaps[0]);
-        }
-        // 写比读多
-        else
-        {
-            // op_gaps[0] 表示每隔 op_gaps[0] 个 set 需要执行一次 get
-            ERROR_LOG("Write is more!");
-            while(__read_num_per_node > 10 && round < 4)
+            else
             {
+                op_gaps[round] = (int)ceil((double)update_num_thread / (double)__read_num_per_thread);  // 要保留无法整除的部分
+                __read_num_per_thread = __read_num_per_thread - (update_num_thread / op_gaps[round]); // 要保留无法整除的部分
+                if (little_idx==-1)
+                    little_idx=round;  
 
-                if (__read_num_per_node > update_num)
-                {
-                    op_gaps[round] = __read_num_per_node / update_num;  // 要保留无法整除的部分
-                    divisible_get_nums[round] = (op_gaps[round] *update_num)*available_r_node_num;
-                    __read_num_per_node = __read_num_per_node - (op_gaps[round]  * update_num); // 要保留无法整除的部分
-                }
-                else
-                {
-                    op_gaps[round] = (int)ceil((double)update_num / (double)__read_num_per_node);  // 要保留无法整除的部分
-                    divisible_get_nums[round] = (update_num / op_gaps[round])*available_r_node_num;
-                    __read_num_per_node = __read_num_per_node - (update_num / op_gaps[round]); // 要保留无法整除的部分
-                    if (little_idx==-1)
-                        little_idx=round;  
-                }
-                ERROR_LOG("count:[%d], op_gaps:[%d], divisible_get_nums[%d], __read_num_per_node[%d]", round, op_gaps[round], divisible_get_nums[round], __read_num_per_node);
-                round++;
-                end_round = round;
+                divisible_thread_get_nums[round] = (update_num_thread / op_gaps[round]);
             }
-            // 每执行了 op_gap_2 个 set 之后需要额外执行 1 次 get 
-            final_get_num=0;
-            for (i=0; i<4; i++)
-                    final_get_num += divisible_get_nums[i];
-
-            // op_gaps[0] = update_num / __read_num_per_node;  // 要保留无法整除的部分
-            // little_idx = 0;
-            // end_round = 1;
-            // left_op_nums = update_num - (op_gaps[0] * __read_num_per_node); // 要保留无法整除的部分
-            // final_get_num =( __read_num_per_node-left_op_nums) * available_r_node_num;
-            get_is_more = false;
-            ERROR_LOG("FINALLY: update_num[%d], __read_num_per_node[%d], left_op_nums:[%d],  final_get_num:[%d], get_is_more[%d], op_gaps:[%d]",update_num, __read_num_per_node, left_op_nums, final_get_num ,get_is_more, op_gaps[0]);
-            Assert(little_idx != -1 && little_idx < end_round);
+            ERROR_LOG("count:[%d], op_gaps:[%d], divisible_get_nums[%d], __read_num_per_thread[%d]", round, op_gaps[round], divisible_thread_get_nums[round], __read_num_per_thread);
+            round++;
+            end_round = round;
         }
 
-        // 更新最终的读数量
-        read_num = final_get_num;
-        // 更新最终的 access 数量
-        __access_num = read_num + update_num;
-        Assert(little_idx != -1 && little_idx < end_round);
+        ERROR_LOG("Divide finished!");
+        // 每执行了 op_gap_2 个 set 之后需要额外执行 1 次 get 
+        for (i=0; i<4; i++)
+            final_get_num_per_threads += divisible_thread_get_nums[i];
+
+        final_get_num_per_node =  final_get_num_per_threads * (int)PARTITION_NUMS;
+        final_set_num_per_node = update_num_thread * (int)PARTITION_NUMS;
+        read_num = final_get_num_per_node * available_r_node_num;
+        __access_num = read_num + final_set_num_per_node;
+
+        if (little_idx == -1)
+            little_idx = end_round;
+        ERROR_LOG("FINALLY: final_get_num_per_threads[%d],  final_get_num_per_node:[%d], update_num_thread [%d],  final_set_num_per_node[%d]", final_get_num_per_threads, final_get_num_per_node,update_num_thread,  final_set_num_per_node);
+        ERROR_LOG("FINALLY: little_idx[%d], end_round [%d], available_r_node_num is [%d]", little_idx, end_round, available_r_node_num);
+        ERROR_LOG("Total op num is [%d] ,read_op is [%d], set_op is [%d]", __access_num, read_num, final_set_num_per_node);
+        Assert(little_idx != -1 && little_idx <= end_round);
     }
     else
     {   
@@ -299,20 +263,21 @@ int main(int argc,char *argv[])
             exit(0);
         }
 
-        // 更新最终的读数量
-        // read_num =  read_num / available_r_node_num; 
-        // 更新最终的 access 数量
         __access_num = read_num + update_num;
+        ERROR_LOG("Total op num is [%d] ,read_op is [%d], set_op is [%d]", __access_num, read_num, update_num);
     }
+
     // op_gap;
     partition_req_count_array = (int*) malloc(sizeof(int) * PARTITION_NUMS);
     memset(partition_req_count_array, 0, sizeof(int) * PARTITION_NUMS);
-
     client_mgr = dhmp_client_init(INIT_DHMP_CLIENT_BUFF_SIZE, false);
     Assert(server_instance);
     Assert(client_mgr);
     avg_partition_count_num = update_num /(int) PARTITION_NUMS;
-    generate_local_get_mgs();
+    
+    // 生成本地读负载
+    generate_test_data((size_t)0, (size_t)1, (size_t)__test_size , (size_t)TEST_KV_NUM);
+    generate_local_get_mgs_handler((size_t)read_num);
 
     next_node_mappings = (struct replica_mappings *) malloc(sizeof(struct replica_mappings));
     memset(next_node_mappings, 0, sizeof(struct replica_mappings));
@@ -521,8 +486,8 @@ int main(int argc,char *argv[])
 #ifdef MAIN_LOG_DEBUG_THROUGHOUT
     if (IS_MAIN(server_instance->server_type))
     {
-        new_main_test_through();
-        exit(0);
+        sleep(3);
+        set_workloada_server();
     }
 #endif
 
@@ -646,97 +611,60 @@ pack_test_get_resq(struct test_kv * kvs, int tag, size_t expect_length)
     return msg;
 }
 
-void workloada_server();
-
-void new_main_test_through()
+void generate_local_get_mgs_handler(size_t avg_parition_read_max_length)
 {
-    workloada_server();
-}
+    int i;
 
-void generate_local_get_mgs()
-{
-    // 生成本地读负载
-    int i, suiji;
-    get_msgs_group = (struct dhmp_msg**) malloc( (size_t)(read_num+1 )* sizeof(void*));
-    generate_test_data((size_t)0, (size_t)1, (size_t)__test_size , (size_t)TEST_KV_NUM);
-    for (i=0; i<=(int)read_num;i++)
-    {
-        srand((unsigned int)i);
-        suiji = rand()%(TEST_KV_NUM);
-        get_msgs_group[i] = pack_test_get_resq(&kvs_group[suiji], i, (size_t)__test_size + VALUE_HEADER_LEN + VALUE_TAIL_LEN);
-    }
+    for (i=0; i<(int)PARTITION_NUMS; i++)
+        get_msg_readonly[i] = pack_test_get_resq(&kvs_group[i], i, (size_t)__test_size + VALUE_HEADER_LEN + VALUE_TAIL_LEN);
 
-    // 随机打乱本地读负载
-    for (i=0; i<(int)read_num;i++)
-    {
-        struct dhmp_msg * tmp;
-        srand((unsigned int)i);
-        suiji = rand()%(read_num+1);
-        tmp = get_msgs_group[suiji];
-        get_msgs_group[suiji] = get_msgs_group[i];
-        get_msgs_group[i] = tmp;
-    }
-}
-
-// 1：1
-void workloada_server()
-{
-	int i = 0;
-    int idx;
-    // struct timespec start_t, end_t;
-    //struct set_requset_pack req_callback_ptr;	
-    // 生成Zipfian数据
     switch (workload_type)
     {
         case UNIFORM:
-            pick_uniform(TEST_KV_NUM);
             break;
         case ZIPFIAN:
-            pick_zipfian(TEST_KV_NUM);
+            for(i=0; i<(int)PARTITION_NUMS;i++)
+            {
+                pf_partition[i] = (double *)malloc(sizeof(double) * avg_parition_read_max_length);
+                rand_num_partition[i] =  (int *)malloc(sizeof(int) * avg_parition_read_max_length);
+                pick_zipfian(pf_partition[i], rand_num_partition[i] , (int)avg_parition_read_max_length);
+            }
             break;
         default:
             ERROR_LOG("Unkown!");
             break;
     }
-    INFO_LOG("pick");
+}
 
+void set_workloada_server()
+{
+	int i = 0;
+    int idx;
+    int set_workload_max_nums = TEST_KV_NUM;
     struct dhmp_msg** set_msgs_group = (struct dhmp_msg**) malloc( (size_t)update_num * sizeof(void*));
-    int * idx_array = (int*) malloc((size_t)ACCESS_NUM * sizeof(int));
-    //  生成写负载
+
     for (i=0; i<(int)update_num;i++)
     {
-        idx = (int)rand_num[i % TEST_KV_NUM];
-        set_msgs_group[i] = pack_test_set_resq(&kvs_group[idx], idx);
-        idx_array[i] = i;
+        idx = i % set_workload_max_nums;
+        set_msgs_group[i] = pack_test_set_resq(&kvs_group[idx], i);
     }
 
-    for (i=0; i<(int)PARTITION_NUMS; i++)
-        ERROR_LOG("partition id [%d] counts [%d]", i , partition_req_count_array[i]);
-    //exit(0);
-
-    struct timespec start_through, end_through;
-    // long long int total_set_through_time=0;
-    clock_gettime(CLOCK_MONOTONIC, &start_through);
 #ifdef PERF_TEST
     int repeat=0;
     while (repeat<1000)
     {
 #endif
-        for(i=0;i < update_num ;i++)
-        {
-            bool is_async;
-            dhmp_send_request_handler(NULL, set_msgs_group[i], &is_async, 0, 0);
-        }
+	for(i=0;i < update_num ;i++)
+	{
+        bool is_async;
+        dhmp_send_request_handler(NULL, set_msgs_group[i], &is_async, 0, 0, false);
+	}
 #ifdef PERF_TEST
         repeat++;
     }
 #endif
-    clock_gettime(CLOCK_MONOTONIC, &end_through);
-    // total_set_through_time = ((((end_through.tv_sec * 1000000000) + end_through.tv_nsec) - ((start_through.tv_sec * 1000000000) + start_through.tv_nsec)));
-    //ERROR_LOG("[set] count[%d] through_out time is [%lld] us", update_num, total_set_through_time /1000);
-
-    // 等待测试结束
-    sleep(5);
+    sleep(3);
+    exit(0);
 }
 
 // 测试所有节点中的数据必须一致

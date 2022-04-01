@@ -27,6 +27,7 @@ void dhmp_wc_recv_handler(struct dhmp_transport* rdma_trans,
 							bool *is_async, 
 							__time_t time_start1, 
 							__syscall_slong_t time_start2);
+
 size_t dhmp_mica_set_request_handler(struct dhmp_transport* rdma_trans, struct post_datagram *req, uint32_t imm_data);
 
 enum dhmp_transport_state {

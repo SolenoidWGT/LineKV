@@ -109,6 +109,7 @@ Get_Retry:
 
 
 // 1：1
+/*
 void workloada()
 {
 	int i = 0, j;
@@ -206,6 +207,7 @@ void workloada()
         ERROR_LOG("workloada test FINISH! avg set time is [%ld]us",  set_time /( US_BASE * update_num));
 
 }
+*/
 
 void debug_test()
 {

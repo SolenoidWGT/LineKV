@@ -634,6 +634,7 @@ static int on_cm_established(struct rdma_cm_event* event, struct dhmp_transport*
 static int on_cm_disconnected(struct rdma_cm_event* event, struct dhmp_transport* rdma_trans)
 {
 	ERROR_LOG("unexpected disconnect!");
+	exit_print_status();
 	exit(-1);
 	dhmp_destroy_source(rdma_trans);
 	rdma_trans->trans_state = DHMP_TRANSPORT_STATE_DISCONNECTED;

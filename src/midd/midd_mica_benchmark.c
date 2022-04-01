@@ -16,30 +16,31 @@ int __test_size;
 int __access_num=0;
 int read_num, update_num;
 int end_round=0;
-bool get_is_more;
 int op_gaps[4];
 int little_idx;
 bool is_all_set_all_get =false;
 
-enum WORK_LOAD_DISTRIBUTED workload_type;
-
 int main_node_is_readable;
-const double A = 1.3;  
-const double C = 1.0;  
-double pf[TEST_KV_NUM]; 
-int rand_num[TEST_KV_NUM]={0};
+enum WORK_LOAD_DISTRIBUTED workload_type;
 struct test_kv kvs_group[TEST_KV_NUM];
 
+const double A = 1.3;  
+const double C = 1.0;  
+//double pf[TEST_KV_NUM]; 
+// int rand_num[TEST_KV_NUM]={0};
+
+int * read_num_penalty=NULL;
+
 // 生成符合Zipfian分布的数据
-void generate_zipfian()
+void generate_zipfian(double pf[], size_t nums)
 {
     int i;
     double sum = 0.0;
  
-    for (i = 0; i < TEST_KV_NUM; i++)
+    for (i = 0; i < nums; i++)
         sum += C/pow((double)(i+2), A);
 
-    for (i = 0; i < TEST_KV_NUM; i++)
+    for (i = 0; i < nums; i++)
     {
         if (i == 0)
             pf[i] = C/pow((double)(i+2), A)/sum;
@@ -49,11 +50,11 @@ void generate_zipfian()
 }
 
 // 根据Zipfian分布生成索引
-void pick_zipfian(int max_num)
+void pick_zipfian(double pf[], int rand_num[], int max_num)
 {
 	int i, index;
 
-    generate_zipfian();
+    generate_zipfian(pf, max_num);
 
     srand(time(0));
     for ( i= 0; i < max_num; i++)
@@ -63,10 +64,12 @@ void pick_zipfian(int max_num)
         while (index<(max_num)&&data > pf[index])   
             index++;
 		rand_num[i]=index;
+       // printf("%d ", rand_num[i]);
     }
+    //printf("\n");
 }
 
-void pick_uniform(int max_num)
+void pick_uniform(double pf[], int rand_num[], int max_num)
 {
 	int i, rand_idx, tmp;
 
@@ -87,19 +90,15 @@ struct test_kv *
 generate_test_data(size_t key_offset, size_t val_offset, size_t value_length, size_t kv_nums)
 {
     size_t i,j;
-    // int partition_id;
-    // struct test_kv *kvs_group;
-    // kvs_group = (struct test_kv *) malloc(sizeof(struct test_kv) * kv_nums);
+    int partition_id;
+    //struct test_kv *kvs_group;
+    //kvs_group = (struct test_kv *) malloc(sizeof(struct test_kv) * kv_nums);
     memset(kvs_group, 0, sizeof(struct test_kv) * kv_nums);
 
     for (i = 0; i < kv_nums; i++)
     {
         size_t key = i;
-        key = key<<16;
-        // size_t key = 314156;
-        // size_t value = i + offset;
-        // uint64_t key_hash = hash((const uint8_t *)&key, sizeof(key));
-        // value_length = sizeof(value) > value_length ? sizeof(value) : value_length;
+        key = key << 16;
 
         kvs_group[i].true_key_length = sizeof(key);
         kvs_group[i].true_value_length = value_length;
@@ -113,10 +112,8 @@ generate_test_data(size_t key_offset, size_t val_offset, size_t value_length, si
 
         memset(kvs_group[i].value, (int)(i+val_offset), kvs_group[i].true_value_length);
         memcpy(kvs_group[i].key, &key, kvs_group[i].true_key_length);
-        // memcpy(kvs_group[i].value, &value, kvs_group[i].true_value_length);
-        
-        // partition_id = *((size_t*)kvs_group[i].key)  % (PARTITION_NUMS);
-        //ERROR_LOG("Hash code %x, partition_id: [%d]", kvs_group[i].key_hash, partition_id);
+
+        partition_id = *((size_t*)kvs_group[i].key)  % (PARTITION_NUMS);
     }
 
     return kvs_group;
