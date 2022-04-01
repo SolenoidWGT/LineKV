@@ -121,6 +121,9 @@ enum mica_send_info_type{
 
 	MICA_REPLICA_UPDATE_REQUEST,
 	MICA_REPLICA_UPDATE_RESPONSE,
+
+	DHMP_MICA_DIRTY_GET_REQUEST,
+	DHMP_MICA_DIRTY_GET_RESPONSE,
 };
 
 enum middware_state{
@@ -459,14 +462,19 @@ extern int __test_size;
 void *busy_wait_cq_handler(void* data);
 
 void dhmp_send_request_handler(struct dhmp_transport* rdma_trans,
-									struct dhmp_msg* msg, 
-									bool * is_async);
+								struct dhmp_msg* msg, bool * is_async, bool is_cq_thread);
 
+extern void* penalty_addr;
 extern struct dhmp_msg** get_msgs_group;
+extern struct dhmp_msg* get_msg_readonly[PARTITION_MAX_NUMS];
 
+extern double *pf_partition[PARTITION_MAX_NUMS];
+extern int *rand_num_partition[PARTITION_MAX_NUMS];
+extern int penalty_partition_count[PARTITION_MAX_NUMS];
 // #define PERF_TEST 1
 #define THROUGH_TEST 1
 // #define MAIN_LOG_DEBUG_LATENCE 1
 // #define DHMP_POST_SEND_LATENCE 
 
+void exit_print_status();
 #endif

@@ -609,20 +609,23 @@ static int on_cm_established(struct rdma_cm_event* event, struct dhmp_transport*
 
 	rdma_trans->trans_state=DHMP_TRANSPORT_STATE_CONNECTED;
 
-	// // 说明调用该函数的是服务端，此时需要向客户端确认客户端的 node_id 
-	// if (rdma_trans->node_id == -1)
-	// {
-	// 	int peer_id = mica_ask_nodeID_req(rdma_trans);
-	// 	if (peer_id == -1)
-	// 	{
-	// 		ERROR_LOG("on_cm_established FAIL!, peer_id is -1");
-	// 		exit(0);
-	// 	}
-	// 	rdma_trans->node_id = peer_id;
-	// 	INFO_LOG("MICA server on_cm_established get client id is [%d], success!", rdma_trans->node_id);
-	// }
-	// else
-	// 	INFO_LOG("MICA client on_cm_established success with server [%d]!", rdma_trans->node_id);
+	if (server_instance->server_id !=0)
+	{
+		// 说明调用该函数的是服务端，此时需要向客户端确认客户端的 node_id 
+		if (rdma_trans->node_id == -1)
+		{
+			int peer_id = mica_ask_nodeID_req(rdma_trans);
+			if (peer_id == -1)
+			{
+				ERROR_LOG("on_cm_established FAIL!, peer_id is -1");
+				exit(0);
+			}
+			rdma_trans->node_id = peer_id;
+			ERROR_LOG("MICA server on_cm_established get client id is [%d], success!", rdma_trans->node_id);
+		}
+		else
+			ERROR_LOG("MICA client on_cm_established success with server [%d]!", rdma_trans->node_id);
+	}
 
 	return retval;
 }
@@ -630,6 +633,7 @@ static int on_cm_established(struct rdma_cm_event* event, struct dhmp_transport*
 static int on_cm_disconnected(struct rdma_cm_event* event, struct dhmp_transport* rdma_trans)
 {
 	ERROR_LOG("unexpected disconnect!");
+	exit_print_status();
 	exit(-1);
 	dhmp_destroy_source(rdma_trans);
 	rdma_trans->trans_state = DHMP_TRANSPORT_STATE_DISCONNECTED;

@@ -16,7 +16,6 @@ int __test_size;
 int __access_num=0;
 int read_num, update_num;
 int end_round=0;
-bool get_is_more;
 int op_gaps[4];
 int little_idx;
 bool is_all_set_all_get =false;
@@ -27,19 +26,21 @@ struct test_kv kvs_group[TEST_KV_NUM];
 
 const double A = 1.3;  
 const double C = 1.0;  
-double pf[TEST_KV_NUM]; 
-int rand_num[TEST_KV_NUM]={0};
+//double pf[TEST_KV_NUM]; 
+// int rand_num[TEST_KV_NUM]={0};
+
+int * read_num_penalty=NULL;
 
 // 生成符合Zipfian分布的数据
-void generate_zipfian()
+void generate_zipfian(double pf[], size_t nums)
 {
     int i;
     double sum = 0.0;
  
-    for (i = 0; i < TEST_KV_NUM; i++)
+    for (i = 0; i < nums; i++)
         sum += C/pow((double)(i+2), A);
 
-    for (i = 0; i < TEST_KV_NUM; i++)
+    for (i = 0; i < nums; i++)
     {
         if (i == 0)
             pf[i] = C/pow((double)(i+2), A)/sum;
@@ -49,11 +50,11 @@ void generate_zipfian()
 }
 
 // 根据Zipfian分布生成索引
-void pick_zipfian(int max_num)
+void pick_zipfian(double pf[], int rand_num[], int max_num)
 {
 	int i, index;
 
-    generate_zipfian();
+    generate_zipfian(pf, max_num);
 
     srand(time(0));
     for ( i= 0; i < max_num; i++)
@@ -63,10 +64,12 @@ void pick_zipfian(int max_num)
         while (index<(max_num)&&data > pf[index])   
             index++;
 		rand_num[i]=index;
+       // printf("%d ", rand_num[i]);
     }
+    //printf("\n");
 }
 
-void pick_uniform(int max_num)
+void pick_uniform(double pf[], int rand_num[], int max_num)
 {
 	int i, rand_idx, tmp;
 

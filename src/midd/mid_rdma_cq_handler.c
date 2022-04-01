@@ -11,7 +11,8 @@
 #include "dhmp_log.h"
 #include "dhmp_dev.h"
 #include "dhmp_server.h"
-
+#include "midd_mica_benchmark.h"
+bool is_printf=false;
 /**
  *	the success work completion handler function
  * 
@@ -61,7 +62,6 @@ static void dhmp_wc_success_handler(struct ibv_wc* wc)
 				dhmp_post_recv(rdma_trans, task_ptr->sge.addr, recv_partition_id);
 				free(msg);
 			}
-			//MICA_TIME_COUNTER_CAL("dhmp_wc_recv_handler");
 			break;
 		case IBV_WC_RDMA_WRITE:
 #ifdef DHMP_MR_REUSE_POLICY

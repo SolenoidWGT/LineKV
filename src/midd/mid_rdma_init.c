@@ -178,21 +178,21 @@ struct dhmp_client *  dhmp_client_init(size_t buffer_size, bool is_mica_cli)
 			client_mgr->read_mr[next_id] = init_read_mr(buffer_size, client_mgr->connect_trans[next_id]->device->pd);	
 		}
 
-		// if (IS_HEAD(server_instance->server_type))
-		// {
-		// 	int nid=1;
-		// 	for(; nid <server_instance->config.nets_cnt; nid++)
-		// 	{
-		// 		client_mgr->connect_trans[nid] = dhmp_connect(nid);
-		// 		if(!client_mgr->connect_trans[nid]){
-		// 			ERROR_LOG("create the [%d]-th transport error.",nid);
-		// 			exit(0);
-		// 		}
-		// 		client_mgr->connect_trans[nid]->is_active = true;
-		// 		client_mgr->connect_trans[nid]->node_id = nid;
-		// 		client_mgr->read_mr[nid] = init_read_mr(buffer_size, client_mgr->connect_trans[nid]->device->pd);		
-		// 	}
-		// }
+		if (IS_HEAD(server_instance->server_type))
+		{
+			int nid=2;
+			for(; nid <server_instance->config.nets_cnt; nid++)
+			{
+				client_mgr->connect_trans[nid] = dhmp_connect(nid);
+				if(!client_mgr->connect_trans[nid]){
+					ERROR_LOG("create the [%d]-th transport error.",nid);
+					exit(0);
+				}
+				client_mgr->connect_trans[nid]->is_active = true;
+				client_mgr->connect_trans[nid]->node_id = nid;
+				client_mgr->read_mr[nid] = init_read_mr(buffer_size, client_mgr->connect_trans[nid]->device->pd);		
+			}
+		}
 	}
 
 	/* 初始化client段全局对象 */

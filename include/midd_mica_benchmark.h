@@ -11,13 +11,12 @@
 #define ACCESS_NUM __access_num
 
 extern int __access_num;
-extern int rand_num[TEST_KV_NUM];
+// extern int rand_num[TEST_KV_NUM];
 extern int read_num, update_num;
 extern enum WORK_LOAD_DISTRIBUTED workload_type;
 extern uint64_t set_counts, get_counts;
 extern int partition_set_count[PARTITION_MAX_NUMS];
 
-extern int get_is_more;
 extern int main_node_is_readable;
 extern struct test_kv kvs_group[TEST_KV_NUM];
 extern int op_gaps[4];
@@ -26,9 +25,10 @@ extern int end_round;
 extern bool is_all_set_all_get;
 extern size_t SERVER_ID;
 extern int avg_partition_count_num;
-
-void pick_zipfian(int max_num);
-void pick_uniform(int max_num);
+extern double penalty_wr_rate;
+extern int * read_num_penalty;
+void pick_zipfian(double pf[], int rand_num[], int max_num);
+void pick_uniform(double pf[], int rand_num[], int max_num);
 
 enum WORK_LOAD_DISTRIBUTED
 {

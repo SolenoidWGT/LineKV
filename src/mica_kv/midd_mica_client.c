@@ -107,6 +107,7 @@ Get_Retry:
 }
 
 // 1：1
+/*
 void workloada()
 {
 	int i = 0, j, k;
@@ -204,7 +205,7 @@ void workloada()
 
     ERROR_LOG("set count [%d] get count [%d] total use [%ld] us ", read_num, update_num, through_time/1000);
 }
-
+*/
 void debug_test()
 {
     int i, j, reval;
