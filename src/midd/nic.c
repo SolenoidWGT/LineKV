@@ -49,15 +49,15 @@ nic_sending_queue_unlock(int lock_id)
 void
 makeup_update_request(struct mehcached_item * item, uint64_t item_offset, const uint8_t *value, uint32_t value_length, size_t tag, int partition_id)
 {
-    Assert(!IS_TAIL(server_instance->server_type));
-    Assert(!IS_MIRROR(server_instance->server_type));
+    Assert(!IS_TAIL());
+    Assert(!IS_MIRROR());
 
     struct list_head * _new, * head, * next;
     size_t next_id;
     struct dhmp_update_request * up_req;
     int nic_partition_id;
 
-    if (IS_MAIN(server_instance->server_type))
+    if (IS_MAIN())
         next_id = REPLICA_NODE_HEAD_ID;
     else
         next_id = server_instance->server_id + 1;
@@ -162,6 +162,8 @@ void * main_node_nic_thread(void * args)
         // 将本地头节点初始化为空
         INIT_LIST_HEAD(&tmp_send_list);
     }
+
+    pthread_reset_cpu(cpu_id);
     pthread_exit(0);
 }
 

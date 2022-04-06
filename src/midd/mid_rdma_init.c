@@ -251,6 +251,8 @@ struct dhmp_server * dhmp_server_init(size_t server_id)
 	uint16_t port_num, phys_port_cnt;
 	int re;
 
+	init_cpu_set_map();
+
 	memset((void*)used_id, -1, sizeof(int) * MAX_PORT_NUMS);
 	server_instance=(struct dhmp_server *)malloc(sizeof(struct dhmp_server));
 	if(!server_instance)
@@ -312,11 +314,14 @@ struct dhmp_server * dhmp_server_init(size_t server_id)
 			// }
 
 			if (server_instance->server_id == 0)
-				SET_MAIN(server_instance->server_type);
+			{
+				SET_MAIN();
+				INFO_LOG("+++++++++++++++++++++++++++++++ Main Node !!!! ++++++++++++++++++++++++++++++++++++++++++");
+			}
 			else if (server_instance->server_id == 1)
-				SET_MIRROR(server_instance->server_type);
+				SET_MIRROR();
 			else
-				SET_REPLICA(server_instance->server_type);
+				SET_REPLICA();
 			
 			// 尾节点单独 set 标志位
 			if (server_instance->server_id == server_instance->node_nums - 1)
@@ -327,7 +332,15 @@ struct dhmp_server * dhmp_server_init(size_t server_id)
 			
 			// 非主节点的头副本节点
 			if (server_instance->server_id == 2)
-				SET_HEAD(server_instance->server_type);
+				SET_HEAD();
+			
+
+#ifdef  ONLY_MAIN_NODE_W
+			if (IS_MAIN())
+				SET_CLIENT();
+#elif defined(ALL_NODE_W) 
+			SET_CLIENT();
+#endif
 
 			MID_LOG("Server's node id is [%d], node_nums is [%d], server_type is %d", \
 					server_instance->server_id, server_instance->node_nums, server_instance->server_type);

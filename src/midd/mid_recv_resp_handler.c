@@ -316,9 +316,7 @@ dhmp_ack_request_handler(struct dhmp_transport* rdma_trans,
 		else
 			resp_ack_state = MICA_ACK_INIT_ADDR_OK;
 
-		if (IS_REPLICA(server_instance->server_type) &&
-			!IS_TAIL(server_instance->server_type) && 
-			nic_thread_ready == false)
+		if (IS_REPLICA() && !IS_TAIL() &&  nic_thread_ready == false)
 			resp_ack_state = MICA_ACK_INIT_ADDR_NOT_OK;
 
 		mehcached_shm_unlock();
@@ -440,7 +438,7 @@ dhmp_mica_get_request_handler(struct post_datagram *req, size_t partition_id)
 	key_addr = (void*)req_info->data;
 	partition_get_id = partition_get_count[req_info->partition_id];
 
-	if (IS_REPLICA(server_instance->server_type))
+	if (IS_REPLICA())
 		Assert(replica_is_ready == true);
 
 	// 扔骰子
@@ -532,7 +530,7 @@ dhmp_mica_get_request_handler(struct post_datagram *req, size_t partition_id)
 	// 但是处于简单和避免两次RPC交互，我们默认value的长度为1k
 	resp_len = sizeof(struct dhmp_mica_get_response) + req_info->peer_max_recv_buff_length;
 	resp = (struct post_datagram *) malloc(DATAGRAM_ALL_LEN(resp_len));
-	memset(resp, 0, DATAGRAM_ALL_LEN(resp_len));
+	memset(resp, 0, DATAGRAM_ALL_LEN(resp_len));							// 考虑对齐，小心设计结构体的内存布局
 	set_result = (struct dhmp_mica_get_response *) DATA_ADDR(resp, 0);
 	value_addr = (void*)set_result + offsetof(struct dhmp_mica_get_response, out_value);
 	out_value = value_addr;
@@ -640,7 +638,7 @@ dhmp_mica_update_notify_request_handler(struct post_datagram *req)
 	size_t value_len, true_value_len;
 	uint64_t item_offset;
 
-	if (IS_REPLICA(server_instance->server_type))
+	if (IS_REPLICA())
 		Assert(replica_is_ready == true);
 
 	req_info  = (struct dhmp_update_notify_request *) DATA_ADDR(req, 0);
@@ -682,7 +680,7 @@ dhmp_mica_update_notify_request_handler(struct post_datagram *req)
 	*/
 
 	// 在收到上游节点传递来的value后，继续向下游节点传播
-	if (!IS_TAIL(server_instance->server_type))
+	if (!IS_TAIL())
 	{
 		// 生成 nic 任务下放到网卡发送链表
         makeup_update_request(update_item, item_offset, (uint8_t *)value_base, value_len, req_info->tag, req_info->partition_id);
