@@ -10,9 +10,11 @@ void *dhmp_context_run(void *data)
 	struct dhmp_event_data *event_data_ptr;
 	struct dhmp_context *ctx=(struct dhmp_context*)data;
 	int i,events_nr=0;
+	int cpu_id;
 	
 	ctx->stop=false;
 	// DEBUG_LOG("dhmp_context_run.");
+	cpu_id = pthread_set_cpu();
 	while(1)
 	{	
 		events_nr=epoll_wait(ctx->epoll_fd, events, ARRAY_SIZE(events), -1);
@@ -31,6 +33,7 @@ void *dhmp_context_run(void *data)
 			break;
 	}
 	
+	pthread_reset_cpu(cpu_id);
 	DEBUG_LOG("dhmp_context stop.");
 	return NULL;
 }

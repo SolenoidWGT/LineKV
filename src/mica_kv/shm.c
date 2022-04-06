@@ -190,7 +190,7 @@ mehcached_shm_find_free_address(size_t size)
 		return NULL;
 	}
 
-	int fd = open("/dev/zero", O_RDONLY);
+	int fd = open("/dev/zero", O_RDWR);
 	if (fd == -1)
 	{
 		ERROR_LOG("open failed");
@@ -198,7 +198,7 @@ mehcached_shm_find_free_address(size_t size)
 		return NULL;
 	}
 
-	void *p = mmap(NULL, size + alignment, PROT_READ, MAP_PRIVATE, fd, 0);
+	void *p = mmap(NULL, size + alignment, PROT_WRITE, MAP_PRIVATE, fd, 0);
 
 	close(fd);
 
@@ -208,7 +208,7 @@ mehcached_shm_find_free_address(size_t size)
 		return NULL;
 	}
 
-	munmap(p, size);
+	// munmap(p, size);
 
 	p = (void *)(((size_t)p + (alignment - 1)) & ~(alignment - 1));
 	return p;

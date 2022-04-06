@@ -14,6 +14,21 @@
 bool 
 dhmp_post_send_info(size_t target_id, void * data, size_t length, struct dhmp_transport *specify_trans, size_t parttion_id);
 
+// PARTITION_NUM
+// 根据 parition 划分 slab 缓冲区
+struct post_datagram *resp_get_slabs[PARTITION_NUM]; 
+
+
+void init_resp_get_slabs()
+{
+	// int i;
+	// for (i = 0; i<PARTITION_NUM; i++)
+	// {
+	// 	resp_slabs[i] = (struct post_datagram *) malloc(DATAGRAM_ALL_LEN(resp_len));
+	// }
+}
+
+
 struct dhmp_transport* 
 dhmp_get_trans_from_addr(void *dhmp_addr)
 {
@@ -306,7 +321,12 @@ mica_set_remote_warpper(uint8_t current_alloc_id,
 				expire_time, overwrite, is_async, req_callback_ptr, target_id,is_update, self_node_id, tag, false, NULL, 0, PARTITION_NUMS);
 }
 
+<<<<<<< HEAD
 void
+=======
+// get 操作是副本节点调用，从主节点获取最新的值，由于副本节点不知道最新的值在主节点的地址，所以采用双边操作
+static struct dhmp_mica_get_response*
+>>>>>>> 16e324193181caefc54498c8e18498c202d5feb0
 mica_get_remote(uint8_t current_alloc_id,  uint64_t key_hash, const uint8_t *key, 
 				size_t key_length, 
 				bool is_async, 
@@ -343,6 +363,12 @@ mica_get_remote(uint8_t current_alloc_id,  uint64_t key_hash, const uint8_t *key
 	else
 		base = reuse_ptr->req_base_ptr;
 
+<<<<<<< HEAD
+=======
+	// 构造报文,注意 value 的缓冲区区域我们不发送给远端
+	total_length = sizeof(struct post_datagram) + sizeof(struct dhmp_mica_get_request) + key_length;
+	base = malloc(total_length); 
+>>>>>>> 16e324193181caefc54498c8e18498c202d5feb0
 	req_msg  = (struct post_datagram *) base;
 	req_data = (struct dhmp_mica_get_request *)((char *)base + sizeof(struct post_datagram));
 
@@ -432,9 +458,9 @@ mica_replica_update_notify(uint64_t item_offset, int partition_id, int tag)
 	size_t total_length = 0;
 	size_t target_id;
 
-	if (IS_MAIN(server_instance->server_type))
+	if (IS_MAIN())
 		target_id = REPLICA_NODE_HEAD_ID;
-	else if (IS_REPLICA(server_instance->server_type))
+	else if (IS_REPLICA())
 		target_id = server_instance->server_id + 1;
 	else
 		Assert(false);

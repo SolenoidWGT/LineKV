@@ -282,18 +282,19 @@ int main(int argc,char *argv[])
     next_node_mappings = (struct replica_mappings *) malloc(sizeof(struct replica_mappings));
     memset(next_node_mappings, 0, sizeof(struct replica_mappings));
 
-    if (IS_MAIN(server_instance->server_type))
+    if (IS_MAIN())
     {
         if (server_instance->node_nums < 3)
         {
             ERROR_LOG("The number of cluster is not enough");
             exit(0);
         }
-        Assert(server_instance->server_id == 0);
+        INFO_LOG("main node id is %d", server_instance->server_id);
+        Assert(server_instance->server_id == (size_t)0);
     }
 
     // 主节点和镜像节点初始化本地hash表
-    if (IS_MAIN(server_instance->server_type))
+    if (IS_MAIN())
     {
         mehcached_table_init(main_table, TABLE_BUCKET_NUMS, 1, TABLE_POOL_SIZE, true, true, true,\
              numa_nodes[0], numa_nodes, MEHCACHED_MTH_THRESHOLD_FIFO);
@@ -304,7 +305,7 @@ int main(int argc,char *argv[])
         Assert(main_table);
     }
 
-    if (IS_MIRROR(server_instance->server_type))
+    if (IS_MIRROR())
     {
         mehcached_table_init(main_table, TABLE_BUCKET_NUMS, 1, TABLE_POOL_SIZE, true, true, true,\
              numa_nodes[0], numa_nodes, MEHCACHED_MTH_THRESHOLD_FIFO);
@@ -313,7 +314,7 @@ int main(int argc,char *argv[])
 
     // 主节点初始化远端hash表，镜像节点初始化自己本地的hash表
     //mehcached_node_init();
-	if (IS_MAIN(server_instance->server_type))
+	if (IS_MAIN())
     {
 		MID_LOG("Node [%d] do MAIN node init work", server_instance->server_id);
         // 向所有副本节点发送 main_table 初始化请求
@@ -390,7 +391,7 @@ int main(int argc,char *argv[])
 #endif
     }
 
-	if (IS_MIRROR(server_instance->server_type))
+	if (IS_MIRROR())
 	{
 		// 镜像节点只需要负责初始化自己的hash表即可，不需要知道副本节点的存储地址
 		MID_LOG("Node [%d] is mirror node, don't do any init work", server_instance->server_id);
@@ -398,7 +399,7 @@ int main(int argc,char *argv[])
 	}
 
     // 存在下游节点的副本节点向下游节点发送初始化请求
-	if(IS_REPLICA(server_instance->server_type))
+	if(IS_REPLICA())
     {
         // 各个副本节点使用 主线程 检查是否已经和 主节点，上游节点 建立连接
         // 副本节点是 server ， 主节点和上游节点是 client
@@ -407,7 +408,7 @@ int main(int argc,char *argv[])
         int active_connection = 0;
         // size_t up_node;
     
-        if (!IS_TAIL(server_instance->server_type))
+        if (!IS_TAIL())
         {
             if (server_instance->node_nums > 3)
             {

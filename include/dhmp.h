@@ -72,6 +72,7 @@ enum dhmp_node_class {
 #define SET_TAIL(type)     ( type = (type | (1 << TAIL)   ) )
 #define SET_CLIENT(type)   ( type = (type | (1 << CLIENT)   ) )
 
+#define SET_CLIENT()   ( server_instance->server_type = (server_instance->server_type | (uint8_t)(1 << CLIENT)   ) )
 
 enum dhmp_msg_type{
 	// DHMP_MSG_MALLOC_REQUEST,
